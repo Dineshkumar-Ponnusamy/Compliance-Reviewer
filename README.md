@@ -12,12 +12,13 @@ ComplianceAI is a dark-themed SaaS dashboard that streamlines medical-device doc
 3. [Getting Started](#getting-started)
 4. [Environment Configuration](#environment-configuration)
 5. [Running the App](#running-the-app)
-6. [AI Providers & Connectivity](#ai-providers--connectivity)
-7. [Project Structure](#project-structure)
-8. [Testing & Quality](#testing--quality)
-9. [Troubleshooting](#troubleshooting)
-10. [Contributing](#contributing)
-11. [License](#license)
+6. [Product Tour](#product-tour)
+7. [AI Providers & Connectivity](#ai-providers--connectivity)
+8. [Project Structure](#project-structure)
+9. [Testing & Quality](#testing--quality)
+10. [Troubleshooting](#troubleshooting)
+11. [Contributing](#contributing)
+12. [License](#license)
 
 ---
 
@@ -133,6 +134,22 @@ npm run lint     # Lint TypeScript/TSX sources (ESLint required if configured)
 3. Upload or paste document text via the left column.
 4. Select artifact type + standards, then click **Run Compliance Review**.
 5. Watch streaming markdown, inspect severity-tagged comments, review recommended artifacts, and expand the revision diff as needed.
+
+## Product Tour
+
+Get a feel for the dashboard flow before running your own review.
+
+1. **Configure provider settings** – pick an AI vendor and test connectivity.
+   ![Settings modal showcasing provider and model selection](docs/Settings-Model-Selection.png)
+
+2. **Stream a compliance review** – watch findings arrive in real time while artifacts are analyzed.
+   ![Dashboard streaming live compliance findings](docs/Analyzing.png)
+
+3. **Review structured results** – scan severity-tagged comments, recommended remediation steps, and related metadata.
+   ![Results column highlighting comment severity and recommendations](docs/With-Results.png)
+
+4. **Compare revisions** – expand the split diff to inspect suggested text updates.
+   ![Expanded diff viewer showing side-by-side comparison](docs/Expanded-Diff.png)
 
 ---
 
