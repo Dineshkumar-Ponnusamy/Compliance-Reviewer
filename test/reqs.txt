@@ -2,14 +2,14 @@
 # Document Type: Software Requirements Specification (Excerpt)
 
 ## 1. Functional Requirements
-- FR-3.2.1 The firmware shall initiate ECG sampling within 3 seconds of device wake-up and sustain a 250 Hz sampling rate with ±1% tolerance.
-- FR-3.2.2 The firmware shall buffer a minimum of 60 seconds of ECG data in volatile memory before triggering lossless upload to the companion mobile app.
+- FR-3.2.1 The firmware shall initiate ECG sampling
+- FR-3.2.2 The firmware shall buffer ECG data in volatile memory before triggering lossless upload to the companion mobile app.
 - FR-3.2.3 The system shall raise an alarm event if three consecutive uploads fail, logging timestamp, failure reason, and retry outcome.
 
 ## 2. Risk Control Requirements
-- RC-4.1 The watchdog timer shall reset the acquisition module after 5 seconds of inactivity to mitigate missed arrhythmia detection (ISO 14971 risk control).
-- RC-4.2 Residual risk for data loss shall be accepted only if the probability of loss is <1e-4 per 24 hours with supporting verification evidence.
-- RC-4.3 All firmware updates must support deterministic rollback initiated by the Product Owner with audit trail retained for 12 months.
+- RC-4.1 The watchdog timer shall reset the acquisition module to mitigate missed arrhythmia detection.
+- RC-4.2 Residual risk for data loss shall be accepted with supporting verification evidence.
+- RC-4.3 All firmware updates must support deterministic rollback initiated by the Product Owner with audit trail.
 
 ## 3. Verification Requirements
 - VR-7.5 The integration test suite shall cover cold-start recovery, watchdog resets, and concurrent BLE/USB transfers with pass/fail criteria.
