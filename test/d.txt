@@ -1,0 +1,21 @@
+# Document: CAPA Investigation Summary (Excerpt)
+
+## Incident Overview
+- CAPA-ID: CAPA-2024-017
+- Device: CardioWatch Firmware v3.2
+- Trigger: Field complaint regarding missed atrial fibrillation alert on units shipped March 2024.
+
+## Investigation Findings
+1. Firmware build FW-3.2.4 introduced a debounce filter that suppressed arrhythmia flags shorter than 6 seconds (requirements specify 4 seconds).
+2. Traceability audit revealed FR-3.2.1 and VR-7.5 were not revalidated after the firmware refactor.
+3. Watchdog timer reset logs were missing for 18% of test cycles because logging occurred after reboot, violating IEC 62304 traceability practices.
+
+## Containment Actions
+- Quarantined lot CW-0324-17 (512 units) pending regression testing.
+- Notified post-market surveillance team; no patient injuries reported to date.
+
+## Corrective/Preventive Actions
+1. Restore 4-second debounce threshold and add automated regression test to cover arrhythmia flag timing.
+2. Update traceability matrix linking FR-3.2.1 and VR-7.5 to the revised verification evidence.
+3. Relocate watchdog reset logging to pre-reboot hook; require proof-of-log in CI pipeline.
+
