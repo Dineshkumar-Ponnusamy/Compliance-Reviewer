@@ -201,19 +201,56 @@ npm run lint     # Lint TypeScript/TSX sources (ESLint required if configured)
 
 ## Product Tour
 
-Get a feel for the dashboard flow before running your own review.
+Get a feel for the workflow before you run your first review.
 
-1. **Configure provider settings** – pick an AI vendor and test connectivity.
-   ![Settings modal showcasing provider and model selection](docs/Settings-Model-Selection.png)
+### 1. Account Access
 
-2. **Stream a compliance review** – watch findings arrive in real time while artifacts are analyzed.
-   ![Dashboard streaming live compliance findings](docs/Analyzing.png)
+![Signup flow](docs/Signup.png)
+![Login screen](docs/Login.png)
 
-3. **Review structured results** – scan severity-tagged comments, recommended remediation steps, and related metadata.
-   ![Results column highlighting comment severity and recommendations](docs/With-Results.png)
+- Onboarding starts with a web-native signup/login experience that mirrors the production branding.
 
-4. **Compare revisions** – expand the split diff to inspect suggested text updates.
-   ![Expanded diff viewer showing side-by-side comparison](docs/Expanded-Diff.png)
+### 2. Configure AI Provider
+
+![Provider and model selection](docs/Settings-Model-Selection.png)
+
+- Choose a cloud or on-prem model, set base URLs/API keys, and run a connectivity test before launching a review.
+
+### 3. Upload & Analyze
+
+![Document upload in progress](docs/Analyzing.png)
+
+- Drag-and-drop DOCX, PDF, XLSX, or text artifacts. A live progress indicator confirms parsing status.
+
+### 4. Stream Findings
+
+![Streaming dashboard results](docs/With-Results.png)
+
+- View severity-tagged comments, recommendations, and metadata as they arrive from the AI provider.
+
+### 5. Inspect Revisions
+
+![Expanded revision diff](docs/Expanded-Diff.png)
+
+- Compare AI-suggested updates against the original artifact using the split diff viewer.
+
+### 6. Review History & Logs
+
+![Reports and audit trail](docs/Reports.png)
+
+- Audit every review run, including durations, providers, and log entries stored locally today (Compliance Hub coming soon).
+
+### 7. Manage Your Profile
+
+![Profile management screen](docs/My-Profile.png)
+
+- Update display names and change passwords directly in-app until centralized identity/AD sync is enabled.
+
+### 8. Execution Flow Overview
+
+![End-to-end execution flow](docs/Execution%20Flow.png)
+
+- Zoomed-out architecture view of how uploads, AI processing, and storage will connect once the on-prem Compliance Hub ships. Dive deeper in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ---
 
