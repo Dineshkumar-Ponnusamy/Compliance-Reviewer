@@ -53,8 +53,6 @@ const Dashboard: React.FC<DashboardProps> = ({
           metadata={metadata}
           onError={onError}
         />
-        <ArtifactTypeSelector value={artifactType} onChange={onArtifactChange} disabled={isLoading} />
-        <ComplianceStandardSelector selected={selectedStandards} onChange={onStandardsChange} disabled={isLoading} />
         <button
           type="button"
           onClick={onAnalyze}
@@ -70,6 +68,8 @@ const Dashboard: React.FC<DashboardProps> = ({
             'Run Compliance Review'
           )}
         </button>
+        <ComplianceStandardSelector selected={selectedStandards} onChange={onStandardsChange} disabled={isLoading} />
+        <ArtifactTypeSelector value={artifactType} onChange={onArtifactChange} disabled={isLoading} />
       </section>
 
       <section className="flex flex-col gap-6">
@@ -82,7 +82,7 @@ const Dashboard: React.FC<DashboardProps> = ({
               </span>
             )}
           </div>
-          <div className="mt-4 h-64 overflow-y-auto rounded-xl border border-gray-700 bg-gray-900/80 p-4 text-sm text-gray-200">
+          <div className="mt-4 h-60 overflow-y-auto rounded-xl border border-gray-700 bg-gray-900/80 p-4 text-sm text-gray-200">
             {reviewMarkdown ? (
               <pre className="whitespace-pre-wrap font-mono text-[12px] text-gray-300">{reviewMarkdown}</pre>
             ) : (

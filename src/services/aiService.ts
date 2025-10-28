@@ -2,6 +2,10 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { AISettings, ArtifactType, ReviewArtifactRequest, ReviewStreamEvent } from '../types';
 import { parseReviewMarkdown } from '../utils/reviewParser';
 
+const cloudProvidersEnabled = import.meta.env.VITE_DISABLE_CLOUD_PROVIDERS !== 'true';
+const DEFAULT_GROQ_BASE = 'https://api.groq.com/openai/v1';
+const DEFAULT_AZURE_API_VERSION = import.meta.env.VITE_AZURE_OPENAI_API_VERSION || '2024-02-15-preview';
+
 const PROMPT_TEMPLATE = `You are a senior Quality & Regulatory Specialist for medical-device software.
 Analyze the following {artifactType} for compliance with {standard}.
 Step 1 – Provide a markdown-formatted review covering:
@@ -37,6 +41,12 @@ export async function* reviewArtifact(
     throw new Error('Artifact content is empty.');
   }
 
+  if (!cloudProvidersEnabled && settings.provider !== 'ollama') {
+    throw new Error(
+      'Cloud AI providers are disabled by configuration. Remove VITE_DISABLE_CLOUD_PROVIDERS or set it to false to re-enable.',
+    );
+  }
+
   if (requiresApiKey(settings.provider) && !settings.apiKey.trim()) {
     throw new Error(`API key missing for ${settings.provider.toUpperCase()}.`);
   }
@@ -67,6 +77,13 @@ export async function* reviewArtifact(
 export const reviewDocument = reviewArtifact;
 
 export async function testConnection(settings: AISettings) {
+  if (!cloudProvidersEnabled && settings.provider !== 'ollama') {
+    return {
+      ok: false,
+      message: 'Cloud AI providers are disabled by configuration. Remove VITE_DISABLE_CLOUD_PROVIDERS or set it to false to re-enable.',
+    };
+  }
+
   if (requiresApiKey(settings.provider) && !settings.apiKey.trim()) {
     return { ok: false, message: 'Provide an API key before testing the connection.' };
   }
@@ -345,7 +362,8 @@ function formatMetadata(metadata?: Partial<ReviewArtifactRequest['metadata']>) {
 
 function normalizeBaseUrl(url?: string) {
   if (!url) return '';
-  return url.endsWith('/') ? url.slice(0, -1) : url;
+  const trimmed = url.trim();
+  return trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed;
 }
 
 function getOpenAICompatibleEndpoint(settings: AISettings) {
@@ -354,12 +372,62 @@ function getOpenAICompatibleEndpoint(settings: AISettings) {
   }
 
   if (settings.provider === 'groq') {
-    return settings.baseUrl?.trim() || 'https://api.groq.com/openai/v1/chat/completions';
+    const base = settings.baseUrl?.trim() || DEFAULT_GROQ_BASE;
+    return appendChatCompletionsPath(base);
   }
 
   if (settings.provider === 'azure') {
-    return settings.baseUrl?.trim() ?? '';
+    if (!settings.baseUrl?.trim()) {
+      return '';
+    }
+    return ensureAzureChatCompletionsEndpoint(settings.baseUrl.trim());
   }
 
-  return settings.baseUrl?.trim() ?? '';
+  if (!settings.baseUrl?.trim()) {
+    return '';
+  }
+  return appendChatCompletionsPath(settings.baseUrl.trim());
+}
+
+function appendChatCompletionsPath(rawBase: string) {
+  try {
+    const url = new URL(rawBase);
+    const cleanedPath = url.pathname.endsWith('/')
+      ? url.pathname.slice(0, -1)
+      : url.pathname;
+    if (!/\/chat\/completions$/i.test(cleanedPath)) {
+      url.pathname = `${cleanedPath}/chat/completions`;
+    }
+    return url.toString();
+  } catch {
+    const base = rawBase.replace(/\/$/, '');
+    if (/\/chat\/completions$/i.test(base)) {
+      return base;
+    }
+    return `${base}/chat/completions`;
+  }
+}
+
+function ensureAzureChatCompletionsEndpoint(rawBase: string) {
+  try {
+    const url = new URL(rawBase);
+    const needsPath = !/\/chat\/completions$/.test(url.pathname);
+    if (needsPath) {
+      const trimmed = url.pathname.endsWith('/') ? url.pathname.slice(0, -1) : url.pathname;
+      url.pathname = `${trimmed}/chat/completions`;
+    }
+    if (!url.searchParams.has('api-version')) {
+      url.searchParams.set('api-version', DEFAULT_AZURE_API_VERSION);
+    }
+    return url.toString();
+  } catch {
+    const baseWithoutTrailing = rawBase.replace(/\/$/, '');
+    const hasPath = /\/chat\/completions(\?|$)/.test(baseWithoutTrailing);
+    const withPath = hasPath ? baseWithoutTrailing : `${baseWithoutTrailing}/chat/completions`;
+    if (withPath.includes('api-version=')) {
+      return withPath;
+    }
+    const separator = withPath.includes('?') ? '&' : '?';
+    return `${withPath}${separator}api-version=${DEFAULT_AZURE_API_VERSION}`;
+  }
 }

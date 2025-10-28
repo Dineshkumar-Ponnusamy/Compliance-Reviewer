@@ -17,14 +17,14 @@ export function parseReviewMarkdown(
     return { comments, recommendations };
   }
 
-  const lines = markdown.split('\n');
+  const lines = markdown.replace(/<br\s*\/?>/gi, '\n').split('\n');
   let section = '';
   const now = new Date().toISOString();
   let recommendationCounter = 1;
   let commentCounter = 1;
   const defaultStandard = context?.standards?.[0] ?? 'ISO 13485';
 
-  const pushComment = (line: string, severity: RecommendationType['severity']) => {
+  const pushComment = (line: string, severity: ReviewComment['severity']) => {
     if (!line.trim()) return;
     const title = line.length > 72 ? `${line.slice(0, 69)}…` : line;
     comments.push({
@@ -39,7 +39,7 @@ export function parseReviewMarkdown(
     });
   };
 
-  const pushRecommendation = (line: string, severity: RecommendationType['severity']) => {
+  const pushRecommendation = (line: string, severity: Recommendation['severity']) => {
     if (!line.trim()) return;
     recommendations.push({
       id: `auto-rec-${recommendationCounter++}`,
@@ -62,6 +62,36 @@ export function parseReviewMarkdown(
     }
 
     const severity = SECTION_SEVERITY[section] ?? 'low';
+
+    if (line.startsWith('|') && line.includes('|')) {
+      const cells = line
+        .split('|')
+        .map((cell) => cell.trim())
+        .filter((cell) => cell.length);
+
+      if (cells.length >= 2) {
+        const normalized = cells.map((cell) => cell.replace(/\*\*/g, '').toLowerCase());
+        const looksLikeHeader =
+          normalized.some((cell) => cell.includes('area')) &&
+          normalized.some((cell) => cell.includes('recommended action'));
+        if (looksLikeHeader) {
+          continue;
+        }
+
+        const [areaCell = '', findingCell = '', impactCell = '', ...rest] = cells;
+        const recommendationCell = rest.join(' | ');
+        const summaryParts: string[] = [];
+        if (findingCell) summaryParts.push(`Finding: ${findingCell}`);
+        if (impactCell) summaryParts.push(`Impact/Risk: ${impactCell}`);
+        const summary = summaryParts.join(' · ') || recommendationCell || findingCell || areaCell;
+        const decoratedSummary = areaCell ? `[${areaCell}] ${summary}` : summary;
+        pushComment(decoratedSummary, severity);
+        if (recommendationCell) {
+          pushRecommendation(recommendationCell, SECTION_SEVERITY[section] ?? severity);
+        }
+        continue;
+      }
+    }
 
     if (line.startsWith('- ') || line.startsWith('• ')) {
       const cleaned = line.replace(/^[-•]\s*/, '').trim();

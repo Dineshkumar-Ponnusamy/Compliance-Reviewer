@@ -1,18 +1,28 @@
 import React, { useState } from 'react';
 import SettingsAIModel from '../components/SettingsAIModel';
 import IntegrationCard from '../components/IntegrationCard';
-import {
-  useAISettings,
-  PROVIDER_MODELS,
-} from '../context/AISettingsContext';
+import { useAISettings, PROVIDER_MODELS, cloudProvidersEnabled } from '../context/AISettingsContext';
 import { AIProvider } from '../types';
 
 const Settings: React.FC = () => {
   const { settings, updateSettings, isApiKeyMissing } = useAISettings();
   const [saveConfirmation, setSaveConfirmation] = useState<string | null>(null);
+  const cloudDisabled = !cloudProvidersEnabled;
+
+  const showTransientMessage = (message: string) => {
+    setSaveConfirmation(message);
+    if (typeof window !== 'undefined') {
+      window.setTimeout(() => setSaveConfirmation(null), 3200);
+    }
+  };
 
   const handleModeChange = (mode: 'cloud' | 'local') => {
     if (mode === settings.mode) return;
+
+    if (mode === 'cloud' && cloudDisabled) {
+      showTransientMessage('Cloud providers are disabled by configuration. Remove VITE_DISABLE_CLOUD_PROVIDERS or set it to false to re-enable.');
+      return;
+    }
 
     if (mode === 'local') {
       updateSettings({
@@ -23,6 +33,10 @@ const Settings: React.FC = () => {
       });
     } else {
       const fallbackProvider: AIProvider = settings.provider === 'ollama' ? 'gemini' : settings.provider;
+      if (cloudDisabled && fallbackProvider !== 'ollama') {
+        showTransientMessage('Cloud providers are disabled by configuration. Remove VITE_DISABLE_CLOUD_PROVIDERS or set it to false to re-enable.');
+        return;
+      }
       updateSettings({
         mode: 'cloud',
         provider: fallbackProvider,
@@ -33,6 +47,11 @@ const Settings: React.FC = () => {
   };
 
   const handleProviderChange = (provider: AIProvider) => {
+    if (cloudDisabled && provider !== 'ollama') {
+      showTransientMessage('Cloud providers are disabled by configuration. Remove VITE_DISABLE_CLOUD_PROVIDERS or set it to false to re-enable.');
+      return;
+    }
+
     const defaultModel = PROVIDER_MODELS[provider]?.[0]?.value ?? settings.model;
     updateSettings({
       provider,
@@ -50,8 +69,7 @@ const Settings: React.FC = () => {
 
   const handleSave = () => {
     updateSettings({ lastUpdated: new Date().toISOString() });
-    setSaveConfirmation('Settings stored to browser storage. We will add Supabase sync in a later release.');
-    setTimeout(() => setSaveConfirmation(null), 3200);
+    showTransientMessage('Settings stored to browser storage. We will add Supabase sync in a later release.');
   };
 
   return (

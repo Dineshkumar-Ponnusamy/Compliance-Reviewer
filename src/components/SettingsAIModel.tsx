@@ -4,6 +4,7 @@ import { testConnection } from '../services/aiService';
 import {
   AVAILABLE_PROVIDERS,
   PROVIDER_MODELS,
+  cloudProvidersEnabled,
   providerRequiresKey,
 } from '../context/AISettingsContext';
 import { AIProvider } from '../types';
@@ -39,10 +40,15 @@ const SettingsAIModel: React.FC<SettingsAIModelProps> = ({
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [customModel, setCustomModel] = useState(model);
 
+  const cloudModeDisabled = !cloudProvidersEnabled;
   const requiresApiKey = providerRequiresKey(provider);
   const recommendedModels = useMemo(() => PROVIDER_MODELS[provider] ?? [], [provider]);
   const showCustomModelInput = provider === 'ollama' || provider === 'azure';
   const showBaseUrlInput = provider === 'ollama' || provider === 'azure' || provider === 'groq';
+  const providerOptions = useMemo(
+    () => AVAILABLE_PROVIDERS.filter((item) => item.mode === mode),
+    [mode],
+  );
 
   useEffect(() => {
     setCustomModel(model);
@@ -60,6 +66,14 @@ const SettingsAIModel: React.FC<SettingsAIModelProps> = ({
   };
 
   const handleTest = async () => {
+    if (cloudModeDisabled && provider !== 'ollama') {
+      setTestResult({
+        ok: false,
+        message: 'Cloud AI providers are disabled by configuration. Remove VITE_DISABLE_CLOUD_PROVIDERS or set it to false.',
+      });
+      return;
+    }
+
     setTesting(true);
     setTestResult(null);
     try {
@@ -89,9 +103,11 @@ const SettingsAIModel: React.FC<SettingsAIModelProps> = ({
               key={item}
               type="button"
               onClick={() => onModeChange(item)}
+              disabled={cloudModeDisabled && item === 'cloud'}
               className={clsx(
                 'rounded-full px-3 py-1 font-semibold transition',
                 mode === item ? 'bg-cyan-500 text-gray-900' : 'text-gray-400 hover:text-gray-100',
+                cloudModeDisabled && item === 'cloud' && 'cursor-not-allowed opacity-60 hover:text-gray-400',
               )}
             >
               {item === 'cloud' ? 'Cloud AI' : 'Local AI'}
@@ -100,15 +116,22 @@ const SettingsAIModel: React.FC<SettingsAIModelProps> = ({
         </div>
       </header>
 
+      {cloudModeDisabled && (
+        <p className="mt-3 text-xs text-amber-300">
+          Cloud providers are disabled by configuration. Remove VITE_DISABLE_CLOUD_PROVIDERS or set it to false to re-enable.
+        </p>
+      )}
+
       <div className="mt-6 grid gap-5 md:grid-cols-2">
         <label className="flex flex-col gap-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
           Provider
           <select
             value={provider}
             onChange={(event) => onProviderChange(event.target.value as AIProvider)}
+            disabled={providerOptions.length === 0}
             className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
           >
-            {AVAILABLE_PROVIDERS.filter((item) => item.mode === mode).map((item) => (
+            {providerOptions.map((item) => (
               <option key={item.value} value={item.value}>
                 {item.label}
               </option>
@@ -208,7 +231,7 @@ const SettingsAIModel: React.FC<SettingsAIModelProps> = ({
           <button
             type="button"
             onClick={handleTest}
-            disabled={testing || (requiresApiKey && !apiKey.trim())}
+            disabled={testing || (requiresApiKey && !apiKey.trim()) || (cloudModeDisabled && provider !== 'ollama')}
             className="rounded-lg border border-cyan-500 bg-cyan-500 px-4 py-2 text-sm font-semibold text-gray-900 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {testing ? 'Testing…' : 'Test'}

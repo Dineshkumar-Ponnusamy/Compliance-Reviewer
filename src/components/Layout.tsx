@@ -1,14 +1,26 @@
 import React, { PropsWithChildren, useMemo, useState } from 'react';
 import clsx from 'classnames';
-
-type Tab = 'dashboard' | 'reports' | 'settings' | 'help';
+import { AppTab } from '../types';
+import AppLogo from './AppLogo';
 
 interface LayoutProps {
-  activeTab: Tab;
-  onTabChange: (tab: Tab) => void;
+  activeTab: AppTab;
+  onTabChange: (tab: AppTab) => void;
+  tabs: Array<{ id: AppTab; label: string }>;
+  userName: string;
+  userRole: string;
+  onLogout: () => void;
 }
 
-const Layout: React.FC<PropsWithChildren<LayoutProps>> = ({ activeTab, onTabChange, children }) => {
+const Layout: React.FC<PropsWithChildren<LayoutProps>> = ({
+  activeTab,
+  onTabChange,
+  tabs,
+  userName,
+  userRole,
+  onLogout,
+  children,
+}) => {
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
 
@@ -22,48 +34,19 @@ const Layout: React.FC<PropsWithChildren<LayoutProps>> = ({ activeTab, onTabChan
       <header className="sticky top-0 z-30 border-b border-gray-800 bg-gray-900/95 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
           <div className="flex items-center gap-8">
-            <div className="flex items-center gap-2 text-lg font-semibold text-cyan-200">
-              <svg
-                className="size-8 rounded-xl border border-cyan-500/40 bg-cyan-500/10 p-1.5"
-                viewBox="0 0 64 64"
-                aria-hidden="true"
-              >
-                <defs>
-                  <linearGradient id="headerGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="#22d3ee" />
-                    <stop offset="100%" stopColor="#0ea5e9" />
-                  </linearGradient>
-                </defs>
-                <rect x="6" y="6" width="52" height="52" rx="14" fill="#0f172a" />
-                <path
-                  d="M20 34l8 8 16-20"
-                  fill="none"
-                  stroke="url(#headerGradient)"
-                  strokeWidth="6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              <div className="flex flex-col leading-tight">
-                <span>ComplianceAI</span>
-                <span className="text-xs font-normal text-gray-400">Medical Device Reviewer</span>
-              </div>
-            </div>
+            <AppLogo />
             <nav className="flex items-center gap-2 text-sm font-medium text-gray-400">
-              {(['dashboard', 'reports', 'settings', 'help'] as Tab[]).map((tab) => (
+              {tabs.map((tab) => (
                 <button
-                  key={tab}
+                  key={tab.id}
                   type="button"
-                  onClick={() => onTabChange(tab)}
+                  onClick={() => onTabChange(tab.id)}
                   className={clsx(
                     'rounded-lg px-3 py-1.5 transition',
-                    activeTab === tab ? 'bg-cyan-500/20 text-cyan-200' : 'hover:bg-gray-800 hover:text-gray-200',
+                    activeTab === tab.id ? 'bg-cyan-500/20 text-cyan-200' : 'hover:bg-gray-800 hover:text-gray-200',
                   )}
                 >
-                  {tab === 'dashboard' && 'Dashboard'}
-                  {tab === 'reports' && 'Reports'}
-                  {tab === 'settings' && 'Settings'}
-                  {tab === 'help' && 'Help'}
+                  {tab.label}
                 </button>
               ))}
             </nav>
@@ -84,9 +67,17 @@ const Layout: React.FC<PropsWithChildren<LayoutProps>> = ({ activeTab, onTabChan
                 </span>
               )}
             </div>
-            <button className="flex size-10 items-center justify-center rounded-full border border-gray-700 bg-gray-800 text-sm font-semibold text-gray-300 transition hover:border-cyan-500/60 hover:text-cyan-200">
-              JD
-            </button>
+            <div className="flex flex-col items-end">
+              <span className="text-sm font-semibold text-gray-200">{userName}</span>
+              <span className="text-xs uppercase tracking-wide text-gray-500">{userRole}</span>
+              <button
+                type="button"
+                onClick={onLogout}
+                className="mt-1 text-[11px] font-semibold text-cyan-400 hover:text-cyan-300"
+              >
+                Logout
+              </button>
+            </div>
           </div>
         </div>
       </header>

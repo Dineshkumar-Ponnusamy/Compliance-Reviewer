@@ -4,6 +4,17 @@ export type ArtifactType = 'requirements' | 'tests' | 'defects' | 'traceability'
 
 export type AIProvider = 'openai' | 'gemini' | 'azure' | 'groq' | 'ollama';
 
+export type UserRole = 'admin' | 'reviewer';
+
+export interface AuthUser {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+}
+
+export type AppTab = 'dashboard' | 'reports' | 'settings' | 'help' | 'admin' | 'profile';
+
 export interface ReviewComment {
   id: string;
   severity: SeverityLevel;
@@ -45,11 +56,26 @@ export interface ReviewHistoryItem {
   id: string;
   timestamp: string;
   metadata: DocumentMetadata;
+  originalText: string;
   highlights: string;
   comments: ReviewComment[];
   recommendations: Recommendation[];
   reviewMarkdown: string;
   revisedText: string;
+  provider: AIProvider;
+  model: string;
+  standards: string[];
+  durationSeconds?: number;
+}
+
+export type ReviewLogLevel = 'info' | 'warn' | 'error';
+
+export interface ReviewLogEntry {
+  id: string;
+  reviewId: string;
+  timestamp: string;
+  message: string;
+  level: ReviewLogLevel;
 }
 
 export type ReviewStreamEvent =

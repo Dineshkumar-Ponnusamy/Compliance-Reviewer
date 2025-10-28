@@ -34,21 +34,25 @@ ComplianceAI is a dark-themed SaaS dashboard that streamlines medical-device doc
 
 ## Architecture Overview
 
+> **Need the full system map and backlog?** See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for an up-to-date deep dive, primary data flows (Mermaid diagrams), and the prioritized delivery backlog.
+
+### Data Flow (Current vs Planned)
+
 ```mermaid
 flowchart LR
-  subgraph Client["Frontend: Vite + React + Tailwind"]
-    UI["Dashboard & Hooks"]
-    SettingsPanel["AI Settings Context"]
-    DiffViewer["Revision Diff Viewer"]
-    Upload["Artifact Uploader"]
+  subgraph Client["React SPA (Vite, Tailwind)"]
+    Dashboard["Dashboard\n(Upload · Analyze · Review)"]
+    SettingsPanel["AI Settings\nContext + Panel"]
+    ReportsUI["Reports & Audit Log"]
+    IndexedDB["IndexedDB\nreviewRuns + reviewLogs"]
   end
 
-  subgraph Services["AI Service Layer"]
-    AISvc["aiService.ts (Adapters + Prompting)"]
-    Parser["Markdown Parser"]
+  subgraph Services["Frontend Services"]
+    AISvc["aiService.ts\n(provider adapters)"]
+    Parser["reviewParser.ts\n(markdown → structures)"]
   end
 
-  subgraph Providers["AI Providers / Runtimes"]
+  subgraph External["AI Providers"]
     OpenAI["OpenAI API"]
     Gemini["Google Gemini"]
     Azure["Azure OpenAI"]
@@ -56,9 +60,16 @@ flowchart LR
     Ollama["Ollama Host"]
   end
 
-  Client -->|artifact content| AISvc
-  AISvc -->|streamed responses| Client
-  AISvc --> Parser --> Client
+  subgraph Future["Planned Backend"]
+    API["Secure Proxy API"]
+    Supabase["Supabase/Postgres\n(settings, history, logs)"]
+  end
+
+  Dashboard -->|artifact content + meta| AISvc
+  AISvc -->|stream events| Dashboard
+  AISvc --> Parser --> Dashboard
+  Dashboard --> IndexedDB
+  ReportsUI -->|load history| IndexedDB
 
   AISvc --> OpenAI
   AISvc --> Gemini
@@ -66,13 +77,64 @@ flowchart LR
   AISvc --> Groq
   AISvc --> Ollama
 
-  subgraph Future["Future Data Layer"]
-    DB["Supabase / Postgres (Audit Logs & Settings)"]
-  end
-
-  SettingsPanel -. planned sync .-> DB
-  AISvc -. planned logging .-> DB
+  SettingsPanel -. planned sync .-> API -.-> Supabase
+  AISvc -. planned proxy .-> API
+  ReportsUI -. planned server-side export .-> API
 ```
+
+### Review Run State Machine
+
+```mermaid
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Loading: Run Compliance Review
+  Loading --> Streaming: Provider stream starts
+  Streaming --> Streaming: Receive review chunk
+  Streaming --> Streaming: Receive revision chunk
+  Streaming --> Parsing: Structured data emitted / post-parse fallback
+  Parsing --> Completed: Save review + logs
+  Streaming --> Error: Provider failure
+  Parsing --> Error: Parse failure
+  Completed --> Idle: User uploads new doc / resets
+  Error --> Idle: User retries
+```
+
+### Component & Storage Map
+
+```mermaid
+graph TD
+  App[App.tsx] --> DashboardPage[Dashboard.tsx]
+  App --> ReportsPage[Reports.tsx]
+  App --> SettingsPage[Settings.tsx]
+  App --> HelpPage[Help.tsx]
+
+  DashboardPage --> Uploader[DocumentUploader]
+  DashboardPage --> ArtifactSelector[ArtifactTypeSelector]
+  DashboardPage --> StandardsSelector[ComplianceStandardSelector]
+  DashboardPage --> ReviewStream
+  DashboardPage --> CommentList[AIReviewList]
+  DashboardPage --> RecommendationPanel[ArtifactRecommendations]
+  DashboardPage --> DiffViewer[RevisionDiffViewer]
+
+  App -->|context| AISettingsContext
+  App -->|persistence| ReviewStore[reviewStore.ts (IndexedDB)]
+
+  RecommendationPanel -->|expand modal| RecommendationModal
+  ReviewStream -->|diff data| DiffViewer
+  ReviewStream -->|parsed data| CommentList
+```
+
+### Delivery Health
+
+| Area | Implemented | Planned | Needs Fix |
+|------|-------------|---------|-----------|
+| Document ingestion | ✅ Text/PDF/DOCX/XLSX parsing with 10 MB cap | Worker offload, parse warnings | — |
+| AI provider routing | ✅ Multi-provider adapters, streaming | Secure proxy, expanded catalogue | ❗ Blocking cloud providers until proxy |
+| Structured outputs | ✅ Markdown parser (lists + tables) → comments/recs | NLP post-processing for duplicates | — |
+| Persistence | ✅ IndexedDB history + audit logs | Supabase/Postgres sync, export APIs | ❗ Data siloed per browser |
+| Settings | ✅ Local storage (no API key persistence) | RBAC, server-side storage | ❗ Anyone can change provider config |
+| Reporting | ✅ Local history + audit log viewer | Filters, export bundles, remote logging | — |
+| Observability | ✅ Client-side audit log (chunks/revisions) | Centralized telemetry/alerts | ❗ No remote monitoring |
 
 | Layer        | Tech / Notes                                                                                  |
 |--------------|------------------------------------------------------------------------------------------------|
@@ -114,6 +176,8 @@ npm install
 |-----------------------------|----------------------------------------------------------------------------------------|-------------------------------------|
 | `VITE_GEMINI_API_KEY`       | Optional fallback for Gemini if the Settings page is not used                          | _(empty)_                           |
 | `VITE_GEMINI_MODEL`         | Default Gemini model identifier                                                        | `gemini-1.5-pro-latest`             |
+| `VITE_DISABLE_CLOUD_PROVIDERS` | Set to `true` to force local-only mode (cloud providers remain enabled by default)     | `false`                             |
+| `VITE_AZURE_OPENAI_API_VERSION`| Override the default Azure OpenAI API version appended during chat completions calls | `2024-02-15-preview`                |
 
 The Settings UI overrides these via persisted browser storage (API keys, models, base URLs). When you deploy to a shared environment, consider elevating this state to Supabase/Postgres as planned.
 
