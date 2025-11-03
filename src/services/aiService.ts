@@ -6,16 +6,42 @@ const cloudProvidersEnabled = import.meta.env.VITE_DISABLE_CLOUD_PROVIDERS !== '
 const DEFAULT_GROQ_BASE = 'https://api.groq.com/openai/v1';
 const DEFAULT_AZURE_API_VERSION = import.meta.env.VITE_AZURE_OPENAI_API_VERSION || '2024-02-15-preview';
 
-const PROMPT_TEMPLATE = `You are a senior Quality & Regulatory Specialist for medical-device software.
-Analyze the following {artifactType} for compliance with {standard}.
-Step 1 – Provide a markdown-formatted review covering:
-• Missing Requirements or Traceability Gaps
-• Ambiguous or Weak Language
-• Risk Assessment Findings
-• Recommended Actions
-Step 2 – Output the separator:
+const PROMPT_TEMPLATE = `You are a senior Quality & Regulatory Specialist with 15+ years of experience in medical device software compliance (ISO 13485, IEC 62304, EU MDR, FDA regulations).
+
+CRITICAL: Your response must contain ONLY the compliance review content. Do NOT include any UI elements, buttons, icons, timestamps, or interface text.
+
+Your task is to perform a thorough compliance review of the following {artifactType} against {standard} requirements.
+
+Focus on finding REAL, SPECIFIC compliance issues. For each finding, provide:
+- The exact problematic text from the document
+- Why it's a compliance issue
+- The specific regulatory requirement it violates
+- How to fix it
+
+Step 1 – Compliance Review Findings:
+Use this exact format with real findings:
+
+## Missing Requirements or Traceability Gaps
+- The software requirements document lacks traceability to system hazards (ISO 13485:2016 clause 4.1) - no hazard mitigation requirements are linked to software functions
+- Risk control measures are not traceable to specific software requirements (IEC 62304 clause 5.2)
+
+## Ambiguous or Weak Language
+- "The system shall perform adequately" is too vague (ISO 13485:2016 clause 7.1) - replace with measurable performance criteria
+- "Data shall be secure" lacks specific security requirements (IEC 62304 clause 7.1) - define encryption, access controls, and audit logging
+
+## Risk Assessment Findings
+- No risk analysis for data corruption during power failures (ISO 14971 clause 4.3) - could lead to incorrect treatment data
+- Single point of failure in backup system not addressed (IEC 62304 clause 5.3) - implement redundant backup mechanisms
+
+## Recommended Actions
+- Add traceability matrix linking all software requirements to hazard analysis (ISO 13485:2016 clause 4.1)
+- Implement automated testing for all risk control measures (IEC 62304 clause 6.2)
+- Conduct security risk assessment following ISO 27001 guidelines
+
+Step 2 – Output this exact separator:
 |||---REVISED_TEXT_SEPARATOR---|||
-Step 3 – Provide the fully revised artifact text.`;
+
+Step 3 – Provide the fully revised artifact text with all recommended improvements incorporated.`;
 
 const SEPARATOR = '|||---REVISED_TEXT_SEPARATOR---|||';
 

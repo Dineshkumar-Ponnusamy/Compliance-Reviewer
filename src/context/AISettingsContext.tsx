@@ -60,12 +60,7 @@ const allowedProviderValues = new Set(AVAILABLE_PROVIDERS.map((item) => item.val
 const DEFAULT_PROVIDER: AIProvider = cloudProvidersEnabled && allowedProviderValues.has('gemini') ? 'gemini' : 'ollama';
 const DEFAULT_MODE: 'cloud' | 'local' = DEFAULT_PROVIDER === 'ollama' ? 'local' : 'cloud';
 const DEFAULT_MODEL = PROVIDER_MODELS[DEFAULT_PROVIDER]?.[0]?.value ?? 'llama3';
-const DEFAULT_BASE_URL =
-  DEFAULT_PROVIDER === 'ollama'
-    ? 'http://localhost:11434'
-    : DEFAULT_PROVIDER === 'groq'
-      ? 'https://api.groq.com/openai/v1'
-      : '';
+const DEFAULT_BASE_URL = DEFAULT_PROVIDER === 'ollama' ? 'http://localhost:11434' : '';
 
 const DEFAULT_SETTINGS: AISettings = {
   provider: DEFAULT_PROVIDER,

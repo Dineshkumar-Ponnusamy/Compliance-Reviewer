@@ -78,7 +78,7 @@ const RevisionDiffViewer: React.FC<RevisionDiffViewerProps> = ({ original, revis
             diffContainer: { background: '#111827', maxHeight: '100%', overflow: 'auto' },
             line: { fontFamily: 'Fira Code, monospace', fontSize: '12px' },
             gutter: { color: '#64748b' },
-            markers: { color: '#38bdf8' },
+            marker: { color: '#38bdf8' },
           }}
         />
       ) : (

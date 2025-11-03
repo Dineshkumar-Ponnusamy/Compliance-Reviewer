@@ -33,7 +33,7 @@ const Settings: React.FC = () => {
       });
     } else {
       const fallbackProvider: AIProvider = settings.provider === 'ollama' ? 'gemini' : settings.provider;
-      if (cloudDisabled && fallbackProvider !== 'ollama') {
+      if (cloudDisabled && settings.provider !== 'ollama') {
         showTransientMessage('Cloud providers are disabled by configuration. Remove VITE_DISABLE_CLOUD_PROVIDERS or set it to false to re-enable.');
         return;
       }

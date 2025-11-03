@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import clsx from 'classnames';
 import { DocumentMetadata } from '../types';
+import { cleanPdfText, cleanDocxText, cleanXlsxText } from '../utils/textCleaner';
 
 interface DocumentUploaderProps {
   onDocumentParsed: (text: string, metadata: DocumentMetadata) => void;
@@ -76,15 +77,19 @@ const DocumentUploader: React.FC<DocumentUploaderProps> = ({ onDocumentParsed, i
 
   const extractPdfText = useCallback(
     async (file: File) => {
+      // Lazy load PDF.js only when needed
       const [pdfjsModule, data] = await Promise.all([
-        import('pdfjs-dist/build/pdf'),
+        import('pdfjs-dist'),
         readFileAsArrayBuffer(file),
       ]);
       const pdfjs: any = (pdfjsModule as any).default ?? pdfjsModule;
-      const workerSrc = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).toString();
+
+      // Use CDN for PDF.js worker to avoid bundling the large worker file
+      const workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
       if (pdfjs.GlobalWorkerOptions.workerSrc !== workerSrc) {
         pdfjs.GlobalWorkerOptions.workerSrc = workerSrc;
       }
+
       const pdf = await pdfjs.getDocument({ data }).promise;
       let combined = '';
       for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
@@ -94,26 +99,32 @@ const DocumentUploader: React.FC<DocumentUploaderProps> = ({ onDocumentParsed, i
         combined += `${pageText.trim()}\n\n`;
         updateProgress(60 + Math.round((pageNumber / pdf.numPages) * 30));
       }
-      return combined.trim();
+      const rawText = combined.trim();
+      const { cleanedText } = cleanPdfText(rawText);
+      return cleanedText;
     },
     [readFileAsArrayBuffer, updateProgress],
   );
 
   const extractDocxText = useCallback(
     async (file: File) => {
+      // Lazy load mammoth only when needed
       const [mammoth, arrayBuffer] = await Promise.all([
         import('mammoth/mammoth.browser'),
         readFileAsArrayBuffer(file),
       ]);
       const result = await mammoth.extractRawText({ arrayBuffer });
       updateProgress(90);
-      return result.value.trim();
+      const rawText = result.value.trim();
+      const { cleanedText } = cleanDocxText(rawText);
+      return cleanedText;
     },
     [readFileAsArrayBuffer, updateProgress],
   );
 
   const extractXlsxText = useCallback(
     async (file: File) => {
+      // Lazy load xlsx only when needed
       const [module, arrayBuffer] = await Promise.all([import('xlsx'), readFileAsArrayBuffer(file)]);
       const xlsx = module.default ?? module;
       const workbook = xlsx.read(arrayBuffer, { type: 'array' });
@@ -124,7 +135,9 @@ const DocumentUploader: React.FC<DocumentUploaderProps> = ({ onDocumentParsed, i
         return csv.length ? `# Sheet: ${sheetName}\n${csv}` : '';
       }).filter(Boolean);
       updateProgress(90);
-      return sheets.join('\n\n').trim();
+      const rawText = sheets.join('\n\n').trim();
+      const { cleanedText } = cleanXlsxText(rawText);
+      return cleanedText;
     },
     [readFileAsArrayBuffer, updateProgress],
   );

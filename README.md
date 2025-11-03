@@ -25,7 +25,10 @@ ComplianceAI is a dark-themed SaaS dashboard that streamlines medical-device doc
 ## Key Features
 - **Streaming AI reviews** for requirements, verification plans, defect logs, or traceability matrices.
 - **Multi-provider inference**: OpenAI, Google Gemini, Azure OpenAI, Groq Cloud, or local Ollama models.
+- **Intelligent text preprocessing**: Automatic cleaning of document artifacts, empty lines, and formatting noise before AI analysis.
+- **Advanced content filtering**: AI output validation removes UI artifacts, placeholders, and nonsense content for clean compliance insights.
 - **Structured insights**: Severity-tagged comment feed, recommended remediation artifacts, and revision diff viewer with copy/download capabilities.
+- **Optimized performance**: Code splitting and CDN loading eliminate large bundle sizes while maintaining fast loading.
 - **Dark-mode dashboard** mirroring the ComplianceAI visual aesthetic (3-column layout, responsive Tailwind CSS).
 - **Persistent AI settings** stored in-browser today, with hooks prepared for future Supabase/Postgres sync.
 - **Realistic sample documents** under `test/` for immediate end-to-end validation.
@@ -103,25 +106,28 @@ stateDiagram-v2
 
 ```mermaid
 graph TD
-  App[App.tsx] --> DashboardPage[Dashboard.tsx]
-  App --> ReportsPage[Reports.tsx]
-  App --> SettingsPage[Settings.tsx]
-  App --> HelpPage[Help.tsx]
+  App["App.tsx"] --> DashboardPage["Dashboard.tsx"]
+  App --> ReportsPage["Reports.tsx"]
+  App --> SettingsPage["Settings.tsx"]
+  App --> HelpPage["Help.tsx"]
+  App --> AdminPage["Admin.tsx"]
+  App --> AuthPage["Auth.tsx"]
+  App --> UserProfilePage["UserProfile.tsx"]
 
-  DashboardPage --> Uploader[DocumentUploader]
-  DashboardPage --> ArtifactSelector[ArtifactTypeSelector]
-  DashboardPage --> StandardsSelector[ComplianceStandardSelector]
-  DashboardPage --> ReviewStream
-  DashboardPage --> CommentList[AIReviewList]
-  DashboardPage --> RecommendationPanel[ArtifactRecommendations]
-  DashboardPage --> DiffViewer[RevisionDiffViewer]
+  DashboardPage --> DocumentUploader["DocumentUploader"]
+  DashboardPage --> ArtifactTypeSelector["ArtifactTypeSelector"]
+  DashboardPage --> ComplianceStandardSelector["ComplianceStandardSelector"]
+  DashboardPage --> AIReviewList["AIReviewList"]
+  DashboardPage --> ArtifactRecommendations["ArtifactRecommendations"]
+  DashboardPage --> RevisionDiffViewer["RevisionDiffViewer"]
 
-  App -->|context| AISettingsContext
-  App -->|persistence| ReviewStore[reviewStore.ts (IndexedDB)]
+  App -->|context| AISettingsContext["AISettingsContext.tsx"]
+  App -->|context| AuthContext["AuthContext.tsx"]
+  App -->|persistence| ReviewStore["reviewStore.ts (IndexedDB)"]
 
-  RecommendationPanel -->|expand modal| RecommendationModal
-  ReviewStream -->|diff data| DiffViewer
-  ReviewStream -->|parsed data| CommentList
+  ArtifactRecommendations -->|expand modal| Modal
+  RevisionDiffViewer -->|diff data| DiffViewer
+  AIReviewList -->|parsed data| Comments
 ```
 
 ### Delivery Health
@@ -143,7 +149,33 @@ graph TD
 | Services     | `src/services/aiService.ts` handles streaming + non-streaming AI integrations                 |
 | Visualization| ReactMarkdown, React Diff Viewer (split diff view for revisions)                              |
 | Styling      | Tailwind CSS + custom shadows/scrollbars                                                      |
-| Planning     | Types defined in `src/types.ts` for comments, recommendations, metadata, and AI settings      |
+| Planning     | Types defined in `src/types.ts` and `src/types/external.d.ts` for comments, recommendations, metadata, and AI settings      |
+
+### Text Processing Pipeline
+
+ComplianceAI implements a sophisticated multi-stage text processing pipeline to ensure high-quality AI analysis:
+
+#### Stage 1: Document Ingestion & Cleaning
+- **Format Detection**: Automatic parsing of PDF, DOCX, XLSX, and plain text files
+- **Text Extraction**: Format-specific extraction with `pdfjs-dist`, `mammoth`, and `xlsx` libraries
+- **Artifact Removal**: `textCleaner.ts` removes page breaks, headers/footers, empty lines, and formatting noise
+- **Content Normalization**: Spacing cleanup and character encoding standardization
+
+#### Stage 2: AI Analysis
+- **Enhanced Prompting**: Structured prompts with compliance-specific examples and clear formatting instructions
+- **Multi-Provider Support**: Streaming responses from OpenAI, Gemini, Azure, Groq, or Ollama
+- **Real-time Processing**: Incremental result streaming for immediate user feedback
+
+#### Stage 3: Output Validation & Filtering
+- **Content Quality Check**: `reviewParser.ts` validates AI responses for meaningful content
+- **Nonsense Filtering**: Removes UI artifacts, placeholders, and generic AI hallucinations
+- **Structured Parsing**: Converts markdown into severity-tagged comments and recommendations
+- **Fallback Handling**: Graceful degradation when AI produces poor quality output
+
+#### Stage 4: Performance Optimization
+- **Code Splitting**: Large libraries (PDF.js, mammoth, xlsx) loaded on-demand
+- **CDN Loading**: PDF.js worker served externally to reduce bundle size
+- **Lazy Loading**: Document processing libraries loaded only when needed
 
 ---
 
@@ -272,12 +304,18 @@ If a provider call fails, the error surfaces in the banner and no mock data is l
 ```
 src/
   components/        # Reusable UI: uploader, selectors, review list, diff viewer, etc.
-  context/           # AI settings context with localStorage persistence
-  pages/             # High-level views: App, Dashboard, Settings, Reports, Help
-  services/          # AI service (multi-provider) integration layer
+  context/           # React contexts: AI settings and authentication
+  mocks/             # Mock data for development/testing
+  pages/             # Page components: Dashboard, Settings, Reports, Auth, Admin, etc.
+  services/          # Business logic: AI service and review storage
   styles/            # Global Tailwind entrypoint + custom scrollbar styling
-  utils/             # Markdown parser for extracting comments/recommendations
+  types/             # TypeScript type definitions
+    external.d.ts    # External library type declarations
   types.ts           # Shared TypeScript interfaces / enums
+  utils/             # Utilities: text cleaning and markdown parsing
+    textCleaner.ts   # Document preprocessing and artifact removal
+    reviewParser.ts  # AI output parsing and content filtering
+  main.tsx           # React app entry point
 test/
   reqs.txt           # Sample software requirements excerpt
   d.txt              # Sample CAPA / investigation document
