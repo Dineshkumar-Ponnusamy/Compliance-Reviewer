@@ -12,10 +12,6 @@ const UserProfile: React.FC = () => {
   const [updatingProfile, setUpdatingProfile] = useState(false);
   const [updatingPassword, setUpdatingPassword] = useState(false);
 
-  if (!user) {
-    return null;
-  }
-
   const handleProfileSubmit = useCallback(
     (event: React.FormEvent<HTMLFormElement>) => {
       event.preventDefault();
@@ -56,6 +52,10 @@ const UserProfile: React.FC = () => {
     },
     [changePassword, currentPassword, newPassword],
   );
+
+  if (!user) {
+    return null;
+  }
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">

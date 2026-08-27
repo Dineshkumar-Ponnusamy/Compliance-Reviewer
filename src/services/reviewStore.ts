@@ -73,8 +73,90 @@ export const listLogsForReview = async (reviewId: string): Promise<ReviewLogEntr
   return logs.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 };
 
+export const deleteReviewRun = async (reviewId: string) => {
+  if (!isBrowser) return;
+  const db = await getDb();
+  const tx = db.transaction([RUN_STORE, LOG_STORE], 'readwrite');
+  await tx.objectStore(RUN_STORE).delete(reviewId);
+  
+  const logIndex = tx.objectStore(LOG_STORE).index('by_review');
+  const logKeys = await logIndex.getAllKeys(reviewId);
+  for (const key of logKeys) {
+    await tx.objectStore(LOG_STORE).delete(key);
+  }
+  await tx.done;
+};
+
 export const clearReviewData = async () => {
   if (!isBrowser) return;
   const db = await getDb();
   await Promise.all([db.clear(RUN_STORE), db.clear(LOG_STORE)]);
 };
+
+export const formatReviewAuditReport = (
+  run: ReviewHistoryItem,
+  logs: ReviewLogEntry[] = [],
+): string => {
+  const date = new Date(run.timestamp).toISOString();
+  return `# Compliance Review Audit Report
+
+## 1. Metadata
+- **Review ID:** ${run.id}
+- **Timestamp (UTC):** ${date}
+- **File Name:** ${run.metadata.fileName}
+- **File Size:** ${(run.metadata.fileSize / 1024).toFixed(1)} KB
+- **Artifact Type:** ${run.metadata.artifactType}
+- **Standards:** ${run.standards.join(', ') || 'ISO 13485'}
+- **Inference Model:** ${run.provider.toUpperCase()} (${run.model})
+- **Duration:** ${run.durationSeconds ? `${run.durationSeconds.toFixed(1)}s` : 'N/A'}
+
+## 2. Executive Summary & AI Findings
+${run.reviewMarkdown || 'No findings recorded.'}
+
+## 3. Structured Compliance Findings (${run.comments.length} items)
+${
+  run.comments.length === 0
+    ? '_No specific non-conformances identified._'
+    : run.comments
+        .map(
+          (c, idx) =>
+            `### ${idx + 1}. [${c.severity.toUpperCase()}] ${c.title}\n- **Section:** ${c.section}\n- **Standard:** ${c.standard}\n- **Details:** ${c.details}`,
+        )
+        .join('\n\n')
+}
+
+## 4. Remediation Recommendations (${run.recommendations.length} items)
+${
+  run.recommendations.length === 0
+    ? '_No remediation items generated._'
+    : run.recommendations
+        .map(
+          (r, idx) =>
+            `### ${idx + 1}. [${r.severity.toUpperCase()}] ${r.title}\n${r.description}${
+              r.relatedArtifacts.length ? `\n- **Referenced Artifacts:** ${r.relatedArtifacts.join(', ')}` : ''
+            }`,
+        )
+        .join('\n\n')
+}
+
+## 5. Suggested Revised Document Text
+\`\`\`markdown
+${run.revisedText || 'No revision generated.'}
+\`\`\`
+
+## 6. Audit Trail Logs (${logs.length} entries)
+| Timestamp | Level | Message |
+| --- | --- | --- |
+${
+  logs.length === 0
+    ? '| N/A | INFO | No audit logs available |'
+    : logs
+        .map(
+          (l) =>
+            `| ${new Date(l.timestamp).toISOString()} | ${l.level.toUpperCase()} | ${l.message.replace(/\|/g, '\\|')} |`,
+        )
+        .join('\n')
+}
+`;
+};
+

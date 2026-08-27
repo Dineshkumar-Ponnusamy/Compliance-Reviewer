@@ -1,11 +1,18 @@
-import { Recommendation, ReviewComment, ReviewArtifactRequest } from '../types';
+import { Recommendation, ReviewComment, ReviewArtifactRequest, SeverityLevel } from '../types';
 
-const SECTION_SEVERITY: Record<string, Recommendation['severity']> = {
-  'Missing Requirements or Traceability Gaps': 'critical',
-  'Ambiguous or Weak Language': 'high',
-  'Risk Assessment Findings': 'high',
-  'Recommended Actions': 'low',
-};
+function matchSectionSeverity(section: string): SeverityLevel {
+  const normalized = section.toLowerCase();
+  if (normalized.includes('missing') || normalized.includes('gap') || normalized.includes('critical') || normalized.includes('hazard')) {
+    return 'critical';
+  }
+  if (normalized.includes('risk') || normalized.includes('ambiguous') || normalized.includes('weak') || normalized.includes('high')) {
+    return 'high';
+  }
+  if (normalized.includes('recommend') || normalized.includes('action') || normalized.includes('low') || normalized.includes('improvement')) {
+    return 'low';
+  }
+  return 'high';
+}
 
 /**
  * Determines if a line contains nonsense or meaningless content that should be filtered out
@@ -31,7 +38,7 @@ function isNonsenseContent(line: string): boolean {
   // Filter out generic headers and placeholders
   const nonsensePatterns = [
     /^step\s+\d+/i,
-    /^compliance review/i,
+    /^compliance review\s*findings?:?$/i,
     /^finding:\s*findings?$/i,
     /^\[.*?\]\s*finding:\s*\[.*?\]$/i,
     /^\[.*?\]\s*finding:\s*----------+$/i,
@@ -53,13 +60,19 @@ function isNonsenseContent(line: string): boolean {
   return nonsensePatterns.some(pattern => pattern.test(trimmed));
 }
 
+function extractRelatedArtifacts(text: string): string[] {
+  const matches = text.match(/(#?[A-Z]{2,}-\d+(\.\d+)*|(ISO|IEC|EU MDR|FDA)\s+[\d:.-]+)/gi);
+  if (!matches) return [];
+  return Array.from(new Set(matches.map(m => m.replace(/^#/, '')))).slice(0, 5);
+}
+
 export function parseReviewMarkdown(
   markdown: string,
   context?: ReviewArtifactRequest,
 ): { comments: ReviewComment[]; recommendations: Recommendation[] } {
   const comments: ReviewComment[] = [];
   const recommendations: Recommendation[] = [];
-  if (!markdown.trim()) {
+  if (!markdown || !markdown.trim()) {
     return { comments, recommendations };
   }
 
@@ -81,36 +94,37 @@ export function parseReviewMarkdown(
   const defaultStandard = context?.standards?.[0] ?? 'ISO 13485';
 
   const pushComment = (line: string, severity: ReviewComment['severity']) => {
-    if (!line.trim()) return;
+    const cleaned = line.trim();
+    if (!cleaned) return;
 
-    // Filter out nonsense or meaningless content
-    if (isNonsenseContent(line)) {
-      console.log('[reviewParser] Filtered nonsense comment:', JSON.stringify(line));
+    if (isNonsenseContent(cleaned)) {
       return;
     }
 
-    const title = line.length > 72 ? `${line.slice(0, 69)}…` : line;
+    const title = cleaned.length > 72 ? `${cleaned.slice(0, 69)}…` : cleaned;
     comments.push({
       id: `auto-comment-${commentCounter++}`,
       severity,
-      section: section || 'General',
+      section: section || 'General Compliance',
       title,
-      summary: line,
-      details: line,
+      summary: cleaned,
+      details: cleaned,
       standard: defaultStandard,
       lastUpdated: now,
     });
   };
 
   const pushRecommendation = (line: string, severity: Recommendation['severity']) => {
-    if (!line.trim()) return;
+    const cleaned = line.trim();
+    if (!cleaned) return;
+    const related = extractRelatedArtifacts(cleaned);
     recommendations.push({
       id: `auto-rec-${recommendationCounter++}`,
-      title: line.length > 72 ? `${line.slice(0, 69)}…` : line,
-      description: line,
+      title: cleaned.length > 72 ? `${cleaned.slice(0, 69)}…` : cleaned,
+      description: cleaned,
       severity,
-      relatedArtifacts: [],
-      autoDraftAvailable: false,
+      relatedArtifacts: related,
+      autoDraftAvailable: true,
     });
   };
 
@@ -119,12 +133,12 @@ export function parseReviewMarkdown(
     if (!line.length) continue;
 
     if (line.startsWith('#')) {
-      const heading = line.replace(/^#+\s*/, '');
+      const heading = line.replace(/^#+\s*/, '').replace(/^\d+[.)]\s*/, '').trim();
       section = heading;
       continue;
     }
 
-    const severity = SECTION_SEVERITY[section] ?? 'low';
+    const severity = matchSectionSeverity(section);
 
     if (line.startsWith('|') && line.includes('|')) {
       const cells = line
@@ -133,10 +147,15 @@ export function parseReviewMarkdown(
         .filter((cell) => cell.length);
 
       if (cells.length >= 2) {
+        // Skip table separator row like | --- | --- |
+        if (cells.every((cell) => new RegExp('^[\\-:\\s]+$').test(cell))) {
+          continue;
+        }
+
         const normalized = cells.map((cell) => cell.replace(/\*\*/g, '').toLowerCase());
         const looksLikeHeader =
-          normalized.some((cell) => cell.includes('area')) &&
-          normalized.some((cell) => cell.includes('recommended action'));
+          normalized.some((cell) => cell.includes('area') || cell.includes('finding') || cell.includes('clause')) &&
+          normalized.some((cell) => cell.includes('action') || cell.includes('impact') || cell.includes('severity'));
         if (looksLikeHeader) {
           continue;
         }
@@ -150,22 +169,19 @@ export function parseReviewMarkdown(
         const decoratedSummary = areaCell ? `[${areaCell}] ${summary}` : summary;
         pushComment(decoratedSummary, severity);
         if (recommendationCell) {
-          pushRecommendation(recommendationCell, SECTION_SEVERITY[section] ?? severity);
+          pushRecommendation(recommendationCell, matchSectionSeverity(section));
         }
         continue;
       }
     }
 
-    if (line.startsWith('- ') || line.startsWith('• ')) {
-      const cleaned = line.replace(/^[-•]\s*/, '').trim();
-      const shouldTreatAsRecommendation =
-        /recommend(ed|ations?)/i.test(section) ||
-        /action/i.test(section) ||
-        cleaned.toLowerCase().startsWith('add ') ||
-        cleaned.toLowerCase().startsWith('implement ') ||
-        cleaned.toLowerCase().startsWith('update ');
-      if (shouldTreatAsRecommendation) {
-        pushRecommendation(cleaned, SECTION_SEVERITY[section] ?? 'high');
+    if (line.startsWith('- ') || line.startsWith('• ') || line.startsWith('* ')) {
+      const cleaned = line.replace(/^[-•*]\s*/, '').trim();
+      const isRecSection = /recommend(ed|ations?)/i.test(section) || /action/i.test(section);
+      const isActionVerb = /^(add |implement |update |create |define |ensure |incorporate |revise )/i.test(cleaned);
+
+      if (isRecSection || (isActionVerb && !section.toLowerCase().includes('missing'))) {
+        pushRecommendation(cleaned, isRecSection ? 'low' : severity);
       } else {
         pushComment(cleaned, severity);
       }
@@ -174,7 +190,12 @@ export function parseReviewMarkdown(
 
     const orderedMatch = line.match(/^(\d+)[.)]\s+(.*)$/);
     if (orderedMatch) {
-      pushRecommendation(orderedMatch[2].trim(), SECTION_SEVERITY[section] ?? 'high');
+      const itemText = orderedMatch[2].trim();
+      if (/recommend(ed|ations?)/i.test(section) || /action/i.test(section)) {
+        pushRecommendation(itemText, 'low');
+      } else {
+        pushComment(itemText, severity);
+      }
       continue;
     }
 
@@ -185,14 +206,13 @@ export function parseReviewMarkdown(
 
   // Filter out only the most egregious nonsense comments
   const meaningfulComments = comments.filter(comment =>
-    comment.title.length > 5 && // Title must be at least somewhat substantial
-    !comment.title.includes('[Category]') && // Avoid category placeholders
-    !/^----------+/.test(comment.title) // Avoid dash-only titles
+    comment.title.length > 5 &&
+    !comment.title.includes('[Category]') &&
+    !/^----------+/.test(comment.title)
   );
 
-  // If we filtered out too much, keep at least some comments
   const finalComments = meaningfulComments.length > 0 ? meaningfulComments :
-    comments.slice(0, Math.min(5, comments.length)); // Keep up to 5 comments even if they're not great
+    comments.slice(0, Math.min(5, comments.length));
 
   return { comments: finalComments, recommendations };
 }

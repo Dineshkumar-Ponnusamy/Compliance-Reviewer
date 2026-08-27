@@ -58,6 +58,24 @@ const ARTIFACT_LABEL: Record<ArtifactType, string> = {
 
 const requiresApiKey = (provider: AISettings['provider']) => provider !== 'ollama';
 
+async function* reviewArtifactInternal(
+  request: ReviewArtifactRequest,
+  settings: AISettings,
+  options: ReviewOptions = {},
+): AsyncGenerator<ReviewStreamEvent> {
+  switch (settings.provider) {
+    case 'gemini':
+      yield* runGeminiReview(request, settings, options);
+      break;
+    case 'ollama':
+      yield* runOllamaReview(request, settings, options);
+      break;
+    default:
+      yield* runOpenAICompatibleReview(request, settings, options);
+      break;
+  }
+}
+
 export async function* reviewArtifact(
   request: ReviewArtifactRequest,
   settings: AISettings,
@@ -78,18 +96,12 @@ export async function* reviewArtifact(
   }
 
   try {
-    switch (settings.provider) {
-      case 'gemini':
-        yield* runGeminiReview(request, settings, options);
-        break;
-      case 'ollama':
-        yield* runOllamaReview(request, settings);
-        break;
-      default:
-        yield* runOpenAICompatibleReview(request, settings);
-        break;
-    }
+    yield* reviewArtifactInternal(request, settings, options);
   } catch (error: any) {
+    if (options.signal?.aborted || error?.name === 'AbortError') {
+      console.log('[aiReview] Review was aborted by user.');
+      return;
+    }
     console.error('[aiReview] Review invocation failed', error);
     const err = error instanceof Error ? error : new Error('Unable to generate AI review.');
     err.message =
@@ -117,7 +129,7 @@ export async function testConnection(settings: AISettings) {
   try {
     switch (settings.provider) {
       case 'gemini': {
-        const client = new GoogleGenerativeAI(settings.apiKey);
+        const client = new GoogleGenerativeAI(settings.apiKey.trim());
         const model = client.getGenerativeModel({ model: settings.model });
         await model.generateContent({
           contents: [{ role: 'user', parts: [{ text: 'Ping for connectivity check.' }]}],
@@ -177,13 +189,66 @@ export async function testConnection(settings: AISettings) {
   }
 }
 
+async function* processStreamTokens(
+  tokenStream: AsyncIterable<string>,
+  request: ReviewArtifactRequest,
+): AsyncGenerator<ReviewStreamEvent> {
+  let reviewBuffer = '';
+  let revisionBuffer = '';
+  let hasSeenSeparator = false;
+
+  for await (const text of tokenStream) {
+    if (!text) continue;
+
+    if (!hasSeenSeparator) {
+      const combined = reviewBuffer + text;
+      const separatorIndex = combined.indexOf(SEPARATOR);
+
+      if (separatorIndex >= 0) {
+        const reviewPart = combined.slice(0, separatorIndex);
+        const postSeparator = combined.slice(separatorIndex + SEPARATOR.length);
+
+        if (reviewPart.length) {
+          yield { type: 'review', chunk: reviewPart };
+        }
+
+        hasSeenSeparator = true;
+
+        if (postSeparator.trim().length) {
+          revisionBuffer += postSeparator;
+          yield { type: 'revision', text: revisionBuffer };
+        }
+      } else {
+        reviewBuffer = combined;
+        yield { type: 'review', chunk: text };
+      }
+    } else {
+      revisionBuffer += text;
+      yield { type: 'revision', text: revisionBuffer };
+    }
+  }
+
+  if (!hasSeenSeparator && reviewBuffer.length) {
+    yield { type: 'review', chunk: reviewBuffer };
+  }
+
+  const structured = parseReviewMarkdown(reviewBuffer, request);
+  if (structured.comments.length || structured.recommendations.length) {
+    yield { type: 'structured', comments: structured.comments, recommendations: structured.recommendations };
+  }
+
+  if (hasSeenSeparator && revisionBuffer.length === 0) {
+    yield { type: 'revision', text: '' };
+  }
+}
+
 async function* runGeminiReview(
   request: ReviewArtifactRequest,
   settings: AISettings,
   options: ReviewOptions,
 ): AsyncGenerator<ReviewStreamEvent> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60000);
+  const timeout = setTimeout(() => controller.abort(), 120000);
   options.signal?.addEventListener('abort', () => controller.abort(), { once: true });
 
   try {
@@ -193,57 +258,16 @@ async function* runGeminiReview(
 
     const result = await model.generateContentStream({
       contents: [{ role: 'user', parts: [{ text: prompt }]}],
-      generationConfig: { temperature: 0.2 },
+      generationConfig: { temperature: 0.2, maxOutputTokens: 4096 },
     });
 
-    let reviewBuffer = '';
-    let revisionBuffer = '';
-    let hasSeenSeparator = false;
-
-    for await (const event of result.stream) {
-      const text = event.text();
-      if (!text) continue;
-
-      if (!hasSeenSeparator) {
-        const combined = reviewBuffer + text;
-        const separatorIndex = combined.indexOf(SEPARATOR);
-
-        if (separatorIndex >= 0) {
-          const reviewPart = combined.slice(0, separatorIndex);
-          const postSeparator = combined.slice(separatorIndex + SEPARATOR.length);
-
-          if (reviewPart.length) {
-            yield { type: 'review', chunk: reviewPart };
-          }
-
-          hasSeenSeparator = true;
-
-          if (postSeparator.trim().length) {
-            revisionBuffer += postSeparator;
-            yield { type: 'revision', text: revisionBuffer };
-          }
-        } else {
-          reviewBuffer = combined;
-          yield { type: 'review', chunk: text };
-        }
-      } else {
-        revisionBuffer += text;
-        yield { type: 'revision', text: revisionBuffer };
+    async function* getGeminiTokens() {
+      for await (const event of result.stream) {
+        yield event.text();
       }
     }
 
-    if (!hasSeenSeparator && reviewBuffer.length) {
-      yield { type: 'review', chunk: reviewBuffer };
-    }
-
-    const structured = parseReviewMarkdown(reviewBuffer, request);
-    if (structured.comments.length || structured.recommendations.length) {
-      yield { type: 'structured', comments: structured.comments, recommendations: structured.recommendations };
-    }
-
-    if (hasSeenSeparator && revisionBuffer.length === 0) {
-      yield { type: 'revision', text: '' };
-    }
+    yield* processStreamTokens(getGeminiTokens(), request);
   } finally {
     clearTimeout(timeout);
   }
@@ -252,6 +276,7 @@ async function* runGeminiReview(
 async function* runOpenAICompatibleReview(
   request: ReviewArtifactRequest,
   settings: AISettings,
+  options: ReviewOptions,
 ): AsyncGenerator<ReviewStreamEvent> {
   const endpoint = getOpenAICompatibleEndpoint(settings);
   if (!endpoint) {
@@ -271,37 +296,66 @@ async function* runOpenAICompatibleReview(
   const response = await fetch(endpoint, {
     method: 'POST',
     headers,
+    signal: options.signal,
     body: JSON.stringify({
       model: settings.model,
       messages: [
-        { role: 'system', content: 'You are a medical-device compliance co-pilot.' },
+        { role: 'system', content: 'You are a senior Quality & Regulatory Specialist for medical device software compliance.' },
         { role: 'user', content: buildPrompt(request) },
       ],
-      max_tokens: 2048,
+      max_tokens: 4096,
+      stream: true,
     }),
   });
 
   if (!response.ok) {
-    throw new Error(`Provider responded with status ${response.status}`);
+    const errText = await response.text().catch(() => '');
+    throw new Error(`Provider responded with status ${response.status}: ${errText.slice(0, 200)}`);
   }
 
-  const data = await response.json();
-  const content: string =
-    data?.choices?.[0]?.message?.content ??
-    (Array.isArray(data?.choices?.[0]?.message?.content)
-      ? data.choices[0].message.content.map((part: any) => part.text ?? part).join('')
-      : '');
+  async function* getSSETokens() {
+    const reader = response.body?.getReader();
+    if (!reader) return;
+    const decoder = new TextDecoder();
+    let buffer = '';
 
-  if (!content.trim()) {
-    throw new Error('Provider returned an empty response.');
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith(':')) continue;
+        if (trimmed === 'data: [DONE]') continue;
+        if (trimmed.startsWith('data: ')) {
+          try {
+            const parsed = JSON.parse(trimmed.slice(6));
+            const token =
+              parsed?.choices?.[0]?.delta?.content ??
+              (Array.isArray(parsed?.choices?.[0]?.delta?.content)
+                ? parsed.choices[0].delta.content.map((p: any) => p.text ?? p).join('')
+                : '');
+            if (token) {
+              yield token;
+            }
+          } catch {
+            // Ignore incomplete JSON chunks in SSE stream
+          }
+        }
+      }
+    }
   }
 
-  yield* emitFromCompleteContent(content, request);
+  yield* processStreamTokens(getSSETokens(), request);
 }
 
 async function* runOllamaReview(
   request: ReviewArtifactRequest,
   settings: AISettings,
+  options: ReviewOptions,
 ): AsyncGenerator<ReviewStreamEvent> {
   const baseUrl = normalizeBaseUrl(settings.baseUrl);
   if (!baseUrl) {
@@ -312,10 +366,11 @@ async function* runOllamaReview(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     mode: 'cors',
+    signal: options.signal,
     body: JSON.stringify({
       model: settings.model,
       prompt: buildPrompt(request),
-      stream: false,
+      stream: true,
     }),
   });
 
@@ -323,43 +378,36 @@ async function* runOllamaReview(
     throw new Error(`Ollama responded with status ${response.status}`);
   }
 
-  const data = await response.json();
-  const content = data?.response ?? '';
+  async function* getOllamaTokens() {
+    const reader = response.body?.getReader();
+    if (!reader) return;
+    const decoder = new TextDecoder();
+    let buffer = '';
 
-  if (!content.trim()) {
-    throw new Error('Ollama returned an empty response.');
-  }
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
 
-  yield* emitFromCompleteContent(content, request);
-}
-
-async function* emitFromCompleteContent(
-  content: string,
-  request: ReviewArtifactRequest,
-): AsyncGenerator<ReviewStreamEvent> {
-  const separatorIndex = content.indexOf(SEPARATOR);
-
-  if (separatorIndex === -1) {
-    yield { type: 'review', chunk: content };
-    const structured = parseReviewMarkdown(content, request);
-    if (structured.comments.length || structured.recommendations.length) {
-      yield { type: 'structured', comments: structured.comments, recommendations: structured.recommendations };
-    }
-    return;
-  }
-
-  const reviewPart = content.slice(0, separatorIndex);
-  const revisionPart = content.slice(separatorIndex + SEPARATOR.length);
-
-  if (reviewPart.trim()) {
-    yield { type: 'review', chunk: reviewPart };
-    const structured = parseReviewMarkdown(reviewPart, request);
-    if (structured.comments.length || structured.recommendations.length) {
-      yield { type: 'structured', comments: structured.comments, recommendations: structured.recommendations };
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          const parsed = JSON.parse(trimmed);
+          const token = parsed?.response ?? '';
+          if (token) {
+            yield token;
+          }
+        } catch {
+          // Ignore incomplete JSON line
+        }
+      }
     }
   }
 
-  yield { type: 'revision', text: revisionPart.trimStart() };
+  yield* processStreamTokens(getOllamaTokens(), request);
 }
 
 function buildPrompt(request: ReviewArtifactRequest) {

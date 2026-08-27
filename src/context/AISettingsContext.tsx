@@ -22,30 +22,31 @@ const BASE_AVAILABLE_PROVIDERS: Array<{ label: string; value: AIProvider; mode: 
 
 const BASE_PROVIDER_MODELS: Record<AIProvider, Array<{ label: string; value: string }>> = {
   openai: [
+    { label: 'GPT-4o (Latest)', value: 'gpt-4o' },
     { label: 'GPT-4o mini', value: 'gpt-4o-mini' },
-    { label: 'GPT-4o', value: 'gpt-4o' },
+    { label: 'o3-mini', value: 'o3-mini' },
     { label: 'o1-mini', value: 'o1-mini' },
-    { label: 'GPT-3.5 Turbo', value: 'gpt-3.5-turbo-0125' },
   ],
   gemini: [
-    { label: 'Gemini 1.5 Pro', value: 'gemini-1.5-pro-latest' },
-    { label: 'Gemini 1.5 Flash', value: 'gemini-1.5-flash-latest' },
-    { label: 'Gemini 1.0 Pro', value: 'gemini-pro' },
+    { label: 'Gemini 2.0 Flash (Fastest)', value: 'gemini-2.0-flash' },
+    { label: 'Gemini 1.5 Pro (Deep Analysis)', value: 'gemini-1.5-pro' },
+    { label: 'Gemini 1.5 Flash', value: 'gemini-1.5-flash' },
   ],
   azure: [
     { label: 'Azure GPT-4o (Deployment)', value: 'gpt-4o' },
-    { label: 'Azure GPT-35 Turbo', value: 'gpt-35-turbo' },
+    { label: 'Azure GPT-4o-mini', value: 'gpt-4o-mini' },
   ],
   groq: [
-    { label: 'LLaMA3-70B', value: 'llama3-70b-8192' },
+    { label: 'LLaMA 3.3 70B Versatile', value: 'llama-3.3-70b-versatile' },
+    { label: 'DeepSeek R1 Distill 70B', value: 'deepseek-r1-distill-llama-70b' },
     { label: 'Mixtral-8x7B', value: 'mixtral-8x7b-32768' },
-    { label: 'Gemma-7B', value: 'gemma-7b-it' },
   ],
   ollama: [
-    { label: 'gpt-oss:20b', value: 'gpt-oss:20b' },
-    { label: 'llama3', value: 'llama3' },
+    { label: 'llama3.3 (Recommended)', value: 'llama3.3' },
+    { label: 'llama3.2', value: 'llama3.2' },
+    { label: 'deepseek-r1', value: 'deepseek-r1' },
     { label: 'mistral', value: 'mistral' },
-    { label: 'phi3', value: 'phi3' },
+    { label: 'phi4', value: 'phi4' },
   ],
 };
 

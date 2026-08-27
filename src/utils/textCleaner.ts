@@ -1,12 +1,13 @@
-interface TextCleaningOptions {
+export interface TextCleaningOptions {
   minLineLength: number;
   removePageNumbers: boolean;
   removeHeadersFooters: boolean;
+  preserveDocumentControl: boolean;
   normalizeSpacing: boolean;
   removeEmptyLines: boolean;
 }
 
-interface CleaningResult {
+export interface CleaningResult {
   originalLength: number;
   cleanedLength: number;
   linesRemoved: number;
@@ -18,13 +19,15 @@ const DEFAULT_OPTIONS: TextCleaningOptions = {
   minLineLength: 3,
   removePageNumbers: true,
   removeHeadersFooters: true,
+  preserveDocumentControl: true,
   normalizeSpacing: true,
   removeEmptyLines: true,
 };
 
 /**
  * Cleans extracted text from documents by removing artifacts, empty lines,
- * and normalizing formatting for better AI processing.
+ * and normalizing formatting for better AI processing while preserving
+ * vital regulatory document control metadata.
  */
 export function cleanExtractedText(text: string, options: Partial<TextCleaningOptions> = {}): CleaningResult {
   const config = { ...DEFAULT_OPTIONS, ...options };
@@ -52,8 +55,8 @@ export function cleanExtractedText(text: string, options: Partial<TextCleaningOp
       // Remove page numbers (common patterns)
       if (config.removePageNumbers && isPageNumberLine(line)) return false;
 
-      // Remove common header/footer patterns
-      if (config.removeHeadersFooters && isHeaderFooterLine(line)) return false;
+      // Remove common non-regulatory header/footer patterns
+      if (config.removeHeadersFooters && isHeaderFooterLine(line, config.preserveDocumentControl)) return false;
 
       return true;
     });
@@ -87,10 +90,9 @@ function isPageNumberLine(line: string): boolean {
 
   // Common page number patterns
   const pagePatterns = [
-    /^page\s+\d+/i,
-    /^\d+\s+of\s+\d+/i,
-    /^\d+\s*\/\s*\d+/i,
-    /^-\s*\d+\s*-$/i,
+    /^page\s+\d+(\s+(of|\/)\s+\d+)?$/i,
+    /^\d+\s+(of|\/)\s+\d+$/i,
+    /^-\s*\d+\s*-$/,
     /^\d+$/, // Just a number (if it's very short, likely a page number)
   ];
 
@@ -98,17 +100,33 @@ function isPageNumberLine(line: string): boolean {
 }
 
 /**
- * Checks if a line appears to be a header or footer
+ * Checks if a line appears to be an unneeded header or footer.
+ * If preserveDocumentControl is true, critical regulatory audit lines
+ * (e.g. Revision History, Document Control, Approvals) are preserved.
  */
-function isHeaderFooterLine(line: string): boolean {
+function isHeaderFooterLine(line: string, preserveDocumentControl = true): boolean {
   const trimmed = line.trim();
 
-  // Common header/footer patterns
-  const headerFooterPatterns = [
+  // Generic noise patterns that should always be removed
+  const genericNoisePatterns = [
     /^confidential$/i,
     /^draft$/i,
     /^internal use only$/i,
     /^company confidential$/i,
+    /^strictly confidential$/i,
+    /^do not distribute$/i,
+  ];
+
+  if (genericNoisePatterns.some(pattern => pattern.test(trimmed))) {
+    return true;
+  }
+
+  if (preserveDocumentControl) {
+    return false;
+  }
+
+  // Purely structural headers that might be removed only if explicitly requested
+  const documentControlPatterns = [
     /^document control/i,
     /^revision history/i,
     /^table of contents/i,
@@ -118,7 +136,7 @@ function isHeaderFooterLine(line: string): boolean {
     /^effective date/i,
   ];
 
-  return headerFooterPatterns.some(pattern => pattern.test(trimmed));
+  return documentControlPatterns.some(pattern => pattern.test(trimmed));
 }
 
 /**
@@ -126,7 +144,7 @@ function isHeaderFooterLine(line: string): boolean {
  */
 export function cleanPdfText(text: string): CleaningResult {
   // PDF-specific cleaning before general cleaning
-  let cleaned = text
+  const cleaned = text
     // Remove form feed characters
     .replace(/\f/g, '')
     // Remove excessive line breaks (more than 2 consecutive)
@@ -148,7 +166,7 @@ export function cleanPdfText(text: string): CleaningResult {
  */
 export function cleanDocxText(text: string): CleaningResult {
   // DOCX-specific cleaning
-  let cleaned = text
+  const cleaned = text
     // Remove table artifacts (lines that look like table borders)
     .replace(/^[-+=|]+\s*$/gm, '')
     // Remove footnote markers
@@ -168,7 +186,7 @@ export function cleanDocxText(text: string): CleaningResult {
  */
 export function cleanXlsxText(text: string): CleaningResult {
   // XLSX-specific cleaning
-  let cleaned = text
+  const cleaned = text
     // Remove sheet headers that are just numbers
     .replace(/^Sheet\d*:?\s*$/gmi, '')
     // Remove empty CSV rows

@@ -3,6 +3,8 @@ import clsx from 'classnames';
 import { DocumentMetadata } from '../types';
 import { cleanPdfText, cleanDocxText, cleanXlsxText } from '../utils/textCleaner';
 
+import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+
 interface DocumentUploaderProps {
   onDocumentParsed: (text: string, metadata: DocumentMetadata) => void;
   isLoading: boolean;
@@ -84,10 +86,9 @@ const DocumentUploader: React.FC<DocumentUploaderProps> = ({ onDocumentParsed, i
       ]);
       const pdfjs: any = (pdfjsModule as any).default ?? pdfjsModule;
 
-      // Use CDN for PDF.js worker to avoid bundling the large worker file
-      const workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
-      if (pdfjs.GlobalWorkerOptions.workerSrc !== workerSrc) {
-        pdfjs.GlobalWorkerOptions.workerSrc = workerSrc;
+      // Use local bundled worker to support offline and air-gapped deployments
+      if (pdfjs.GlobalWorkerOptions.workerSrc !== pdfWorker) {
+        pdfjs.GlobalWorkerOptions.workerSrc = pdfWorker;
       }
 
       const pdf = await pdfjs.getDocument({ data }).promise;

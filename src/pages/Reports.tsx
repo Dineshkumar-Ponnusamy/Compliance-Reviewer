@@ -1,44 +1,54 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import clsx from 'classnames';
 import { ReviewHistoryItem, ReviewLogEntry } from '../types';
-import { listLogsForReview } from '../services/reviewStore';
+import { listLogsForReview, formatReviewAuditReport, deleteReviewRun } from '../services/reviewStore';
 
 interface ReportsProps {
   history: ReviewHistoryItem[];
   isLoading: boolean;
   error: string | null;
   onRefresh: () => Promise<void>;
+  searchQuery?: string;
 }
 
-const Reports: React.FC<ReportsProps> = ({ history, isLoading, error, onRefresh }) => {
+const Reports: React.FC<ReportsProps> = ({ history, isLoading, error, onRefresh, searchQuery = '' }) => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [logs, setLogs] = useState<ReviewLogEntry[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsError, setLogsError] = useState<string | null>(null);
+  const [actionFeedback, setActionFeedback] = useState<string | null>(null);
+
+  const filteredHistory = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return history;
+    return history.filter(
+      (item) =>
+        item.metadata.fileName.toLowerCase().includes(query) ||
+        item.metadata.artifactType.toLowerCase().includes(query) ||
+        item.provider.toLowerCase().includes(query) ||
+        item.model.toLowerCase().includes(query) ||
+        item.standards.some((s) => s.toLowerCase().includes(query)) ||
+        item.comments.some((c) => c.title.toLowerCase().includes(query) || c.details.toLowerCase().includes(query)) ||
+        item.recommendations.some((r) => r.title.toLowerCase().includes(query)),
+    );
+  }, [history, searchQuery]);
+
+  const activeSelectedId = useMemo(() => {
+    if (selectedId && filteredHistory.some((item) => item.id === selectedId)) {
+      return selectedId;
+    }
+    return filteredHistory[0]?.id ?? null;
+  }, [filteredHistory, selectedId]);
 
   useEffect(() => {
-    if (!history.length) {
-      setSelectedId(null);
-      setLogs([]);
-      setLogsError(null);
-      return;
-    }
-    if (!selectedId || !history.some((item) => item.id === selectedId)) {
-      setSelectedId(history[0].id);
-    }
-  }, [history, selectedId]);
-
-  useEffect(() => {
-    if (!selectedId) {
-      setLogs([]);
-      setLogsError(null);
+    if (!activeSelectedId) {
       return;
     }
     let cancelled = false;
     const fetchLogs = async () => {
       try {
         setLogsLoading(true);
-        const entries = await listLogsForReview(selectedId);
+        const entries = await listLogsForReview(activeSelectedId);
         if (!cancelled) {
           setLogs(entries);
           setLogsError(null);
@@ -57,11 +67,11 @@ const Reports: React.FC<ReportsProps> = ({ history, isLoading, error, onRefresh 
     return () => {
       cancelled = true;
     };
-  }, [selectedId]);
+  }, [activeSelectedId]);
 
   const selectedReview = useMemo(
-    () => history.find((item) => item.id === selectedId) ?? null,
-    [history, selectedId],
+    () => history.find((item) => item.id === activeSelectedId) ?? null,
+    [history, activeSelectedId],
   );
 
   const logStats = useMemo(() => {
@@ -75,13 +85,60 @@ const Reports: React.FC<ReportsProps> = ({ history, isLoading, error, onRefresh 
     );
   }, [logs]);
 
+  const handleExportMarkdown = () => {
+    if (!selectedReview) return;
+    const markdown = formatReviewAuditReport(selectedReview, logs);
+    const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const safeName = selectedReview.metadata.fileName.replace(/[^a-zA-Z0-9_-]/g, '_');
+    link.download = `compliance-audit-${safeName}-${new Date(selectedReview.timestamp).getTime()}.md`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setActionFeedback('Markdown audit report downloaded.');
+    window.setTimeout(() => setActionFeedback(null), 2500);
+  };
+
+  const handleExportJson = () => {
+    if (!selectedReview) return;
+    const payload = {
+      review: selectedReview,
+      auditLogs: logs,
+      exportedAt: new Date().toISOString(),
+      complianceVersion: '0.1.0',
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const safeName = selectedReview.metadata.fileName.replace(/[^a-zA-Z0-9_-]/g, '_');
+    link.download = `compliance-manifest-${safeName}-${new Date(selectedReview.timestamp).getTime()}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setActionFeedback('JSON audit bundle downloaded.');
+    window.setTimeout(() => setActionFeedback(null), 2500);
+  };
+
+  const handleDelete = async () => {
+    if (!selectedReview) return;
+    if (window.confirm(`Are you sure you want to delete the review for "${selectedReview.metadata.fileName}"?`)) {
+      await deleteReviewRun(selectedReview.id);
+      await onRefresh();
+      setActionFeedback('Review record deleted.');
+      window.setTimeout(() => setActionFeedback(null), 2500);
+    }
+  };
+
   return (
     <div className="grid gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
       <section className="space-y-4 rounded-2xl border border-gray-700 bg-gray-800/70 p-6 shadow-lg shadow-black/20">
         <header className="flex items-center justify-between">
           <div>
             <h2 className="text-sm font-semibold text-gray-100">Review History</h2>
-            <p className="text-xs text-gray-500">Stored locally in your browser.</p>
+            <p className="text-xs text-gray-500">
+              {filteredHistory.length} {filteredHistory.length === 1 ? 'record' : 'records'} stored locally.
+            </p>
           </div>
           <button
             type="button"
@@ -91,34 +148,47 @@ const Reports: React.FC<ReportsProps> = ({ history, isLoading, error, onRefresh 
             Refresh
           </button>
         </header>
+
+        {searchQuery && (
+          <p className="text-[11px] text-cyan-300">
+            Filtering by query: &ldquo;{searchQuery}&rdquo; ({filteredHistory.length} matches)
+          </p>
+        )}
+
         {error && <p className="rounded-lg border border-rose-500/50 bg-rose-500/10 p-3 text-xs text-rose-200">{error}</p>}
+        {actionFeedback && (
+          <p className="rounded-lg border border-emerald-500/50 bg-emerald-500/10 p-2.5 text-xs text-emerald-200">
+            {actionFeedback}
+          </p>
+        )}
+
         <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
           {isLoading ? (
             <div className="rounded-xl border border-cyan-500/40 bg-cyan-500/10 p-4 text-sm text-cyan-200">
               Loading review history…
             </div>
-          ) : history.length === 0 ? (
+          ) : filteredHistory.length === 0 ? (
             <div className="rounded-xl border border-dashed border-gray-700 bg-gray-900/60 p-4 text-sm text-gray-400">
-              No stored reviews yet. Run a compliance review to populate this list.
+              {searchQuery ? 'No reviews matched your search.' : 'No stored reviews yet. Run a compliance review to populate this list.'}
             </div>
           ) : (
-            history.map((item) => (
+            filteredHistory.map((item) => (
               <button
                 key={item.id}
                 type="button"
                 onClick={() => setSelectedId(item.id)}
                 className={clsx(
                   'w-full rounded-xl border px-4 py-3 text-left transition',
-                  item.id === selectedId
+                  item.id === activeSelectedId
                     ? 'border-cyan-500 bg-cyan-500/15 text-gray-50'
                     : 'border-gray-700 bg-gray-900/60 text-gray-200 hover:border-cyan-500/40 hover:text-gray-50',
                 )}
               >
                 <div className="flex items-center justify-between text-xs text-gray-400">
                   <span>{new Date(item.timestamp).toLocaleString()}</span>
-                  <span>{item.metadata.fileName}</span>
+                  <span className="truncate max-w-[120px]">{item.metadata.fileName}</span>
                 </div>
-                <div className="mt-2 text-sm font-semibold text-gray-100">{item.metadata.artifactType}</div>
+                <div className="mt-2 text-sm font-semibold text-gray-100 uppercase">{item.metadata.artifactType}</div>
                 <div className="mt-1 text-xs text-gray-400">
                   {item.provider.toUpperCase()} · {item.model} · {item.standards.join(', ')}
                 </div>
@@ -135,15 +205,39 @@ const Reports: React.FC<ReportsProps> = ({ history, isLoading, error, onRefresh 
           </div>
         ) : (
           <>
-            <header className="flex flex-wrap items-center justify-between gap-3">
+            <header className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-700/60 pb-4">
               <div>
                 <h2 className="text-sm font-semibold text-gray-100">Review Details</h2>
                 <p className="text-xs text-gray-500">
                   Duration {selectedReview.durationSeconds ? `${selectedReview.durationSeconds.toFixed(1)}s` : 'n/a'} ·{' '}
-                  {selectedReview.metadata.fileName}
+                  {selectedReview.metadata.fileName} ({selectedReview.provider.toUpperCase()} · {selectedReview.model})
                 </p>
               </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleExportMarkdown}
+                  className="rounded-lg border border-cyan-500/60 bg-cyan-500/15 px-3 py-1.5 text-xs font-semibold text-cyan-200 transition hover:bg-cyan-500/25"
+                >
+                  Export Markdown
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportJson}
+                  className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-1.5 text-xs font-semibold text-gray-300 transition hover:border-cyan-500/60 hover:text-cyan-200"
+                >
+                  Export JSON
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-200 transition hover:border-rose-400 hover:bg-rose-500/20"
+                >
+                  Delete
+                </button>
+              </div>
             </header>
+
             <section className="grid gap-4 md:grid-cols-2">
               <article className="rounded-xl border border-gray-700 bg-gray-900/70 p-4 text-sm text-gray-300">
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-400">Original Artifact</h3>
@@ -152,12 +246,13 @@ const Reports: React.FC<ReportsProps> = ({ history, isLoading, error, onRefresh 
                 </p>
               </article>
               <article className="rounded-xl border border-gray-700 bg-gray-900/70 p-4 text-sm text-gray-300">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-400">AI Highlights</h3>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-400">AI Findings Markdown</h3>
                 <p className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap text-xs text-gray-400">
                   {selectedReview.reviewMarkdown.slice(0, 1500) || 'No review markdown captured.'}
                 </p>
               </article>
             </section>
+
             <section className="rounded-xl border border-gray-700 bg-gray-900/70 p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-400">Audit Log</h3>

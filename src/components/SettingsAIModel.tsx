@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import clsx from 'classnames';
 import { testConnection } from '../services/aiService';
 import {
@@ -49,10 +49,6 @@ const SettingsAIModel: React.FC<SettingsAIModelProps> = ({
     () => AVAILABLE_PROVIDERS.filter((item) => item.mode === mode),
     [mode],
   );
-
-  useEffect(() => {
-    setCustomModel(model);
-  }, [model, provider]);
 
   const handleModelSelect = (value: string) => {
     onModelChange(value);

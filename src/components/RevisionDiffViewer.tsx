@@ -40,10 +40,6 @@ const RevisionDiffViewer: React.FC<RevisionDiffViewerProps> = ({ original, revis
 
   const hasContent = useMemo(() => Boolean(original.trim()) || Boolean(revised.trim()), [original, revised]);
 
-  useEffect(() => {
-    setCopyStatus('idle');
-  }, [revised]);
-
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(revised);

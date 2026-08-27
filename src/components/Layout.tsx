@@ -1,4 +1,4 @@
-import React, { PropsWithChildren, useMemo, useState } from 'react';
+import React, { PropsWithChildren } from 'react';
 import clsx from 'classnames';
 import { AppTab } from '../types';
 import AppLogo from './AppLogo';
@@ -10,6 +10,8 @@ interface LayoutProps {
   userName: string;
   userRole: string;
   onLogout: () => void;
+  searchQuery?: string;
+  onSearchChange?: (query: string) => void;
 }
 
 const Layout: React.FC<PropsWithChildren<LayoutProps>> = ({
@@ -19,15 +21,10 @@ const Layout: React.FC<PropsWithChildren<LayoutProps>> = ({
   userName,
   userRole,
   onLogout,
+  searchQuery = '',
+  onSearchChange,
   children,
 }) => {
-  const [search, setSearch] = useState('');
-  const [debounced, setDebounced] = useState('');
-
-  useMemo(() => {
-    const handle = setTimeout(() => setDebounced(search), 320);
-    return () => clearTimeout(handle);
-  }, [search]);
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100">
@@ -55,16 +52,20 @@ const Layout: React.FC<PropsWithChildren<LayoutProps>> = ({
             <div className="relative">
               <input
                 type="search"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search reviews, artifacts..."
+                value={searchQuery}
+                onChange={(event) => onSearchChange?.(event.target.value)}
+                placeholder="Search findings, artifacts, standards..."
                 className="w-64 rounded-xl border border-gray-700 bg-gray-900 px-10 py-2 text-sm text-gray-100 outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
               />
               <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">⌕</span>
-              {debounced && (
-                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-cyan-400">
-                  {debounced.length} chars
-                </span>
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => onSearchChange?.('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-gray-200"
+                >
+                  ✕
+                </button>
               )}
             </div>
             <div className="flex flex-col items-end">

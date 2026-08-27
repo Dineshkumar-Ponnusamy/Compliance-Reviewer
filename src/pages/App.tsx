@@ -25,6 +25,7 @@ import UserProfile from './UserProfile';
 const App: React.FC = () => {
   const { user, logout, users, updateUserRole } = useAuth();
   const [activeTab, setActiveTab] = useState<AppTab>('dashboard');
+  const [searchQuery, setSearchQuery] = useState('');
   const [documentText, setDocumentText] = useState('');
   const [metadata, setMetadata] = useState<DocumentMetadata | null>(null);
   const [artifactType, setArtifactType] = useState<ArtifactType>('requirements');
@@ -41,6 +42,7 @@ const App: React.FC = () => {
   const [historyLoading, setHistoryLoading] = useState(true);
   const { settings, isApiKeyMissing } = useAISettings();
   const isAdmin = user?.role === 'admin';
+  const abortControllerRef = React.useRef<AbortController | null>(null);
 
   const navTabs = useMemo(() => {
     const items: Array<{ id: AppTab; label: string }> = [
@@ -66,19 +68,15 @@ const App: React.FC = () => {
     setError(null);
   }, []);
 
-  useEffect(() => {
-    setMetadata((prev) => (prev ? { ...prev, artifactType } : prev));
-  }, [artifactType]);
+  const handleArtifactChange = useCallback((type: ArtifactType) => {
+    setArtifactType(type);
+    setMetadata((prev) => (prev ? { ...prev, artifactType: type } : prev));
+  }, []);
 
-  useEffect(() => {
-    setMetadata((prev) => (prev ? { ...prev, standards } : prev));
-  }, [standards]);
-
-  useEffect(() => {
-    if (!navTabs.some((tab) => tab.id === activeTab)) {
-      setActiveTab(navTabs[0]?.id ?? 'dashboard');
-    }
-  }, [activeTab, navTabs]);
+  const handleStandardsChange = useCallback((std: string[]) => {
+    setStandards(std);
+    setMetadata((prev) => (prev ? { ...prev, standards: std } : prev));
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -108,7 +106,17 @@ const App: React.FC = () => {
 
   const canAnalyze = useMemo(() => Boolean(documentText.trim()), [documentText]);
 
+  const handleCancelReview = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsLoading(false);
+    setError('Review generation stopped by user.');
+  }, []);
+
   const handleLogout = useCallback(() => {
+    handleCancelReview();
     logout();
     setActiveTab('dashboard');
     setDocumentText('');
@@ -120,7 +128,8 @@ const App: React.FC = () => {
     setError(null);
     setAnalysisDuration(null);
     setReviewHistory([]);
-  }, [logout]);
+    setSearchQuery('');
+  }, [handleCancelReview, logout]);
 
   const handleReview = useCallback(async () => {
     if (!documentText.trim()) return;
@@ -134,6 +143,9 @@ const App: React.FC = () => {
       setError('Provide an Ollama base URL before running a local review.');
       return;
     }
+
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
 
     setIsLoading(true);
     setReviewMarkdown('');
@@ -189,9 +201,12 @@ const App: React.FC = () => {
           metadata: metadata ?? undefined,
         },
         settings,
+        { signal: abortController.signal },
       );
 
       for await (const event of generator) {
+        if (abortController.signal.aborted) break;
+
         if (event.type === 'review') {
           aggregatedReview += event.chunk;
           setReviewMarkdown((prev) => prev + event.chunk);
@@ -215,6 +230,10 @@ const App: React.FC = () => {
             `Structured findings received (${event.comments.length} comments, ${event.recommendations.length} recommendations)`,
           );
         }
+      }
+
+      if (abortController.signal.aborted) {
+        return;
       }
 
       if (!structuredComments.length && aggregatedReview.trim()) {
@@ -282,10 +301,13 @@ const App: React.FC = () => {
         `Review completed in ${elapsed.toFixed(1)}s (${reviewChunkCount} review chunks, ${revisionChunkCount} revision updates, ${structuredComments.length} comments, ${structuredRecommendations.length} recommendations)`,
       );
     } catch (err: any) {
-      setError(err?.message ?? 'Unable to complete AI review.');
-      emitLog(`Review failed: ${err?.message ?? 'Unknown error'}`, 'error');
+      if (!abortController.signal.aborted) {
+        setError(err?.message ?? 'Unable to complete AI review.');
+        emitLog(`Review failed: ${err?.message ?? 'Unknown error'}`, 'error');
+      }
     } finally {
       setIsLoading(false);
+      abortControllerRef.current = null;
     }
   }, [artifactType, documentText, metadata, revisedText, settings, standards]);
 
@@ -293,14 +315,18 @@ const App: React.FC = () => {
     return <Auth />;
   }
 
+  const effectiveActiveTab = navTabs.some((t) => t.id === activeTab) ? activeTab : 'dashboard';
+
   return (
     <Layout
-      activeTab={activeTab}
+      activeTab={effectiveActiveTab}
       onTabChange={setActiveTab}
       tabs={navTabs}
       userName={user.name || user.email}
       userRole={user.role.toUpperCase()}
       onLogout={handleLogout}
+      searchQuery={searchQuery}
+      onSearchChange={setSearchQuery}
     >
       {error && (
         <div className="mb-6 rounded-xl border border-rose-500/50 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
@@ -308,13 +334,13 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {isApiKeyMissing && activeTab === 'dashboard' && (
+      {isApiKeyMissing && effectiveActiveTab === 'dashboard' && (
         <div className="mb-6 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
           Add an API key for {settings.provider.toUpperCase()} in Settings to enable cloud reviews. Local mode requires an Ollama host URL.
         </div>
       )}
 
-      {activeTab === 'dashboard' && (
+      {effectiveActiveTab === 'dashboard' && (
         <Dashboard
           isLoading={isLoading}
           metadata={metadata}
@@ -327,18 +353,21 @@ const App: React.FC = () => {
           recommendations={recommendations}
           analysisDuration={analysisDuration}
           onDocumentParsed={handleDocumentParsed}
-          onArtifactChange={setArtifactType}
-          onStandardsChange={setStandards}
+          onArtifactChange={handleArtifactChange}
+          onStandardsChange={handleStandardsChange}
           onAnalyze={handleReview}
+          onCancel={handleCancelReview}
           onError={setError}
           canAnalyze={canAnalyze}
+          searchQuery={searchQuery}
         />
       )}
-      {activeTab === 'reports' && (
+      {effectiveActiveTab === 'reports' && (
         <Reports
           history={reviewHistory}
           isLoading={historyLoading}
           error={historyError}
+          searchQuery={searchQuery}
           onRefresh={async () => {
             try {
               setHistoryLoading(true);
@@ -352,10 +381,10 @@ const App: React.FC = () => {
           }}
         />
       )}
-      {activeTab === 'settings' && <Settings />}
-      {activeTab === 'help' && <Help />}
-      {activeTab === 'admin' && isAdmin && <Admin users={users} onRoleChange={updateUserRole} />}
-      {activeTab === 'profile' && <UserProfile />}
+      {effectiveActiveTab === 'settings' && <Settings />}
+      {effectiveActiveTab === 'help' && <Help />}
+      {effectiveActiveTab === 'admin' && isAdmin && <Admin users={users} onRoleChange={updateUserRole} />}
+      {effectiveActiveTab === 'profile' && <UserProfile />}
     </Layout>
   );
 };
